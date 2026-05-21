@@ -1,40 +1,51 @@
 # From OpenAPI Endpoints to Runnable API Workflows: Introducing Arazzo Visualizer for VS Code
 
-OpenAPI changed the way we describe APIs.
+## Quick Overview
 
-It gave teams a common language for documenting endpoints, request bodies, response schemas, authentication, examples, and everything else that makes an API understandable.
+OpenAPI is great at describing individual API endpoints, but many real API tasks are workflows, not single calls. A user signs in, receives a token, searches for data, creates something, passes an ID into the next request, checks a result, and continues through a sequence. Those multi-step journeys are often hidden in documentation, test scripts, Postman collections, CI jobs, or developer memory.
 
-But most real API work does not happen one endpoint at a time.
+**Arazzo** is an OpenAPI Initiative specification for describing those API workflows in a standard way. It lets you define how multiple API operations work together: what runs first, which inputs are required, how data from one step is used in another step, what success looks like, and how the whole flow should behave.
 
-A user signs in, gets a token, searches for a product, creates a cart, adds an item, checks out, and maybe confirms the order. A backend service calls one API, takes something from the response, passes it into the next request, branches on a condition, retries on failure, and validates that the whole flow worked.
+This is useful because API consumers usually need to understand the journey, not just the endpoint list. It also helps teams make workflows repeatable, testable, and easier to share. Instead of asking every developer, tester, tool, or AI assistant to rediscover the correct sequence of calls, Arazzo lets the API owner write the workflow down once in a structured format.
 
-That is where things usually get messy.
+**Arazzo Visualizer for VS Code** is an extension that makes those workflow files easier to work with inside the editor. It turns Arazzo files into interactive diagrams, provides editing support for YAML and JSON workflow files, connects workflow steps back to OpenAPI operation definitions, and lets you run workflows directly from VS Code.
 
-The API specification may be clean, but the actual workflow often ends up scattered across docs, test scripts, Postman collections, CI jobs, comments, and developer memory. You can read the endpoints, but you still have to mentally stitch together the journey.
+In practice, the extension helps you:
 
-That is the problem the [Arazzo Specification](https://spec.openapis.org/arazzo/latest.html) is designed to solve.
+- Understand an API workflow visually instead of reading a long YAML file line by line
+- Create and refine Arazzo workflows with GitHub Copilot
+- Navigate from workflow steps to the related OpenAPI operations
+- Catch authoring mistakes with validation, completions, hovers, and diagnostics
+- Execute workflows with curl or Copilot-assisted flows
+- Inspect execution progress, outputs, failures, and traces
 
-Arazzo is an OpenAPI Initiative specification for describing API workflows. Instead of only documenting individual operations, it lets you describe how multiple API calls work together: which step runs first, what data gets passed between steps, what success looks like, and how a real API journey behaves from start to finish.
+So the short version is this: Arazzo describes how API calls work together, and Arazzo Visualizer helps you design, understand, and run those workflows without leaving VS Code.
 
-I built **Arazzo Visualizer for VS Code** to make those workflows easier to create, understand, and run without leaving the editor.
+If you are still reading and want the full story, the rest of this post walks through why Arazzo matters, how the extension works, and how you can use it in real API development.
 
-It turns Arazzo files into interactive diagrams, adds smart editing support, connects workflows back to their OpenAPI operations, and includes a built-in runner so you can test real API sequences directly from VS Code.
+## In This Post
 
-![Arazzo Visualizer demo](https://raw.githubusercontent.com/wso2/arazzo-tools/main/extensions/arazzo-visualizer/arazzo-designer-extension/assets/v3_visualizer_demo.gif)
+- [Why Arazzo Matters](#why-arazzo-matters)
+- [Using the VS Code Extension](#using-the-vs-code-extension)
+- [A Small Look Under the Hood](#a-small-look-under-the-hood)
+- [Who This Is For](#who-this-is-for)
+- [Try It](#try-it)
 
-## Why Arazzo Matters Even More with AI
+OpenAPI changed the way we describe APIs by giving teams a shared language for endpoints, schemas, examples, authentication, and more. But real API work often happens across multiple calls, and those flows can become scattered across docs, scripts, collections, CI jobs, and developer memory.
 
-There is another reason Arazzo is becoming important: AI agents are starting to interact with APIs on our behalf.
+That is the problem the [Arazzo Specification](https://spec.openapis.org/arazzo/latest.html) is designed to solve. It describes API workflows, not just individual operations.
 
-Without a workflow description, an AI assistant has to figure out the API journey by itself. If you ask it to "create a cart and add a product," it may need to inspect the OpenAPI description, decide which endpoint to call first, understand how authentication works, identify which response fields to carry forward, choose the next endpoint, build each request, and recover when something fails.
+I built **Arazzo Visualizer for VS Code** to make those workflows easier to create, understand, and run. It turns Arazzo files into interactive diagrams, adds smart editing support, connects workflows back to OpenAPI operations, and includes a built-in runner for testing real API sequences directly from VS Code.
 
-That gives the AI a lot of freedom, but it also creates risk.
+## Why Arazzo Matters
 
-The flow can become inconsistent. The model may choose the wrong endpoint, miss a required dependency, pass the wrong value into a later request, or spend a lot of context reasoning through steps that your system already knows.
+### Why Arazzo Matters Even More with AI
 
-With Arazzo, the workflow is explicit.
+AI agents are starting to interact with APIs on our behalf, which makes explicit workflows even more valuable.
 
-The AI does not need to invent the flow every time. It can choose the right workflow, provide the required inputs, and let the runner execute the deterministic sequence defined in the Arazzo file.
+Without a workflow description, an assistant has to infer the API journey by itself: which endpoint to call first, how authentication works, which response fields to carry forward, what to do next, and how to recover from failure. That freedom is useful, but it can also lead to inconsistent flows, missed dependencies, wrong values, and extra reasoning over steps your system already knows.
+
+With Arazzo, the workflow is explicit. The AI can choose the right workflow, provide the required inputs, and let the runner execute the deterministic sequence defined in the Arazzo file.
 
 That has a few practical benefits:
 
@@ -44,17 +55,11 @@ That has a few practical benefits:
 - **Better safety**: the AI can operate through known workflows instead of freely exploring every endpoint
 - **Potentially lower token usage**: the assistant can call a workflow tool instead of reasoning through and constructing every API call step by step
 
-The token-saving part depends on the system design, but the direction is clear: when the workflow is already described, the AI needs less conversational context to rediscover it. The engine can handle the API calls, data passing, and validation, while the AI focuses on selecting the right workflow and interpreting the result.
+The token-saving part depends on the system design, but the direction is clear: when the workflow is already described, the AI needs less context to rediscover it. The engine can handle API calls, data passing, and validation while the AI focuses on selecting the workflow.
 
-That is a much better division of responsibility.
+### Why Arazzo Needs Good Tooling
 
-Let the specification define the workflow. Let the engine run it. Let the AI help the user choose, configure, and understand it.
-
-## Why Arazzo Needs Good Tooling
-
-Arazzo files are readable, but workflow files can still grow quickly.
-
-Once you have multiple workflows, several steps, inputs, outputs, success criteria, conditional paths, and references into OpenAPI descriptions, it becomes easy to lose the shape of the flow.
+Arazzo files are readable, but they can grow quickly. With multiple workflows, several steps, inputs, outputs, success criteria, conditional paths, and OpenAPI references, it becomes easy to lose the shape of the flow.
 
 You may find yourself asking:
 
@@ -65,42 +70,38 @@ You may find yourself asking:
 - Can I actually run this workflow against the real API?
 - What failed when the workflow did not behave as expected?
 
-Those are not problems a plain YAML editor can fully solve.
+Those are not problems a plain YAML editor can fully solve. Arazzo Visualizer makes Arazzo feel like a first-class development experience inside VS Code, not just another structured text file.
 
-Arazzo Visualizer is meant to make Arazzo feel like a first-class development experience inside VS Code, not just another structured text file.
+## Using the VS Code Extension
 
-## The Basic Workflow
+![Arazzo Visualizer demo](https://raw.githubusercontent.com/wso2/arazzo-tools/main/extensions/arazzo-visualizer/arazzo-designer-extension/assets/v3_visualizer_demo.gif)
+
+### Getting Started
 
 There are two common ways to use the extension.
 
-The first path is when you already have OpenAPI descriptions and want to create an Arazzo workflow from them.
-
-For example, you can open GitHub Copilot Chat and ask it to create an Arazzo file from your OpenAPI spec:
+If you already have OpenAPI descriptions, you can ask GitHub Copilot Chat to create an Arazzo workflow from them:
 
 ```text
 Create a sample Arazzo file named toolshop.arazzo.yaml with 3 steps using the Toolshop OpenAPI specification below to list all products and create a cart:
 https://api.practicesoftwaretesting.com/docs
 ```
 
-Once Copilot creates the file, you can open it in VS Code, launch the visualizer, inspect the workflow, edit the steps, and run it.
+Once Copilot creates the file, open it in VS Code, launch the visualizer, inspect the workflow, edit the steps, and run it.
 
-The second path is when you already have an Arazzo file.
-
-Open a `.arazzo.yaml`, `.arazzo.yml`, or `.arazzo.json` file, then click the **Arazzo Overview** icon in the editor toolbar or run:
+If you already have an Arazzo file, open a `.arazzo.yaml`, `.arazzo.yml`, or `.arazzo.json` file, then click the **Arazzo Overview** icon in the editor toolbar or run:
 
 ```text
 ArazzoDesigner: Open Arazzo Visualizer
 ```
 
-The visualizer opens beside your file and stays in sync as you edit.
+The visualizer opens beside your file and stays in sync as you edit, so you can move between code and diagram naturally: change the YAML, see the diagram update, inspect a step, fix an issue, and run the workflow again.
 
-That means you can move between code and diagram naturally: change the YAML, see the diagram update, select a step, inspect the details, fix an issue, and run the workflow again.
+### Visualize, Edit, and Navigate Workflows
 
-## See the Workflow, Not Just the File
+#### See the Workflow, Not Just the File
 
-The main feature is the visual workflow diagram.
-
-Instead of reading a long YAML or JSON file from top to bottom and building the flow in your head, you can see the workflow as connected steps.
+The main feature is the visual workflow diagram. Instead of reading a long YAML or JSON file from top to bottom and building the flow in your head, you can see the workflow as connected steps.
 
 You can:
 
@@ -110,22 +111,18 @@ You can:
 - Understand dependencies between steps
 - Watch the diagram update when the source file changes
 
-This is especially useful when you are reviewing someone else's workflow, debugging a broken flow, or explaining an API journey to another developer.
+This is useful when you are reviewing someone else's workflow, debugging a broken flow, or explaining an API journey to another developer. Arazzo is about sequences, and a diagram makes those sequences much easier to reason about.
 
-Arazzo is about sequences. A diagram makes those sequences much easier to reason about.
+#### Smart Editing for Arazzo Files
 
-## Smart Editing for Arazzo Files
-
-The extension also improves the normal editing experience.
-
-It recognizes Arazzo files such as:
+The extension also improves the normal editing experience. It recognizes Arazzo files such as:
 
 - `.arazzo.yaml`
 - `.arazzo.yml`
 - `.arazzo.json`
 - matching `-arazzo` file names
 
-Once a file is recognized, you get language support for Arazzo-specific authoring:
+Once a file is recognized, you get Arazzo-specific language support:
 
 - Syntax highlighting for Arazzo keywords
 - Highlighting for runtime expressions like `$statusCode` and `$response.body`
@@ -133,15 +130,11 @@ Once a file is recognized, you get language support for Arazzo-specific authorin
 - Validation for missing fields, invalid references, and structure issues
 - YAML and JSON support
 
-This matters because small mistakes in workflow files can be painful. A broken `stepId`, an invalid reference, or a missing required field may not be obvious until much later.
+Small mistakes in workflow files can be painful. The goal is to catch broken `stepId`s, invalid references, missing fields, and structure issues while you are still writing.
 
-The goal is to catch those issues while you are still writing.
+#### CodeLens Actions Where You Need Them
 
-## CodeLens Actions Where You Need Them
-
-Arazzo Visualizer adds useful CodeLens actions directly above workflow definitions.
-
-You do not need to remember commands or jump through menus. When you are looking at a workflow, the extension gives you actions in context.
+Arazzo Visualizer adds useful CodeLens actions directly above workflow definitions, so you do not need to remember commands or jump through menus.
 
 The main actions are:
 
@@ -149,31 +142,25 @@ The main actions are:
 - **Try with curl**: run the workflow from the editor and see the result in a terminal
 - **Try with AI**: hand the workflow to GitHub Copilot and run it through a natural language conversation
 
-This keeps the workflow tight: write, visualize, run, inspect, adjust.
+This keeps the loop tight: write, visualize, run, inspect, adjust.
 
-## Navigate from Arazzo Back to OpenAPI
+#### Navigate from Arazzo Back to OpenAPI
 
-An Arazzo workflow usually points back to operations defined in OpenAPI files.
-
-That connection is important. If a workflow step says it uses an `operationId`, you often want to jump straight to the operation definition and confirm the method, path, request body, response schema, or summary.
-
-Arazzo Visualizer includes language-server support for this.
+An Arazzo workflow usually points back to operations defined in OpenAPI files. If a workflow step uses an `operationId`, you often want to jump straight to the operation definition and confirm the method, path, request body, response schema, or summary.
 
 You can use **Ctrl+Click** on Windows/Linux or **Cmd+Click** on macOS to navigate from an Arazzo `operationId` to the matching OpenAPI operation.
 
-You can also hover over an `operationId` to see operation details without leaving the file, including information such as the HTTP method, path, summary, and where the operation is defined.
+You can also hover over an `operationId` to see operation details without leaving the file, including the HTTP method, path, summary, and where the operation is defined.
 
-The extension can discover OpenAPI files near your Arazzo file, including files in the same directory, nearby subdirectories, and a parent directory. It also re-indexes when OpenAPI files change, so navigation stays useful as the API evolves.
+The extension can discover OpenAPI files near your Arazzo file, including files in the same directory, nearby subdirectories, and a parent directory. It also re-indexes when OpenAPI files change.
 
 For teams with multiple OpenAPI files, this saves a lot of context switching.
 
-## Create and Edit Workflows with GitHub Copilot
+### Create, Run, and Debug Workflows
 
-One of the most useful parts of the extension is the Copilot workflow.
+#### Create and Edit Workflows with GitHub Copilot
 
-Arazzo is expressive, but writing a workflow from scratch can still feel unfamiliar if you are new to the spec. Copilot can help you get the first draft in place.
-
-You can ask Copilot to create an Arazzo workflow from an OpenAPI description, then use the visualizer to review and refine it.
+Arazzo is expressive, but writing a workflow from scratch can feel unfamiliar if you are new to the spec. Copilot can help create the first draft, and the visualizer helps you review and refine it.
 
 For example:
 
@@ -191,25 +178,17 @@ Add success criteria to the create-cart step to check that the status code is 20
 Add a retry step if the product list request fails.
 ```
 
-After saving the file, the visualizer updates to match the latest version.
+After saving the file, the visualizer updates to match the latest version. This gives you a practical loop: use AI to draft or adjust the workflow, use the visual diagram to understand it, and use validation plus execution to verify it.
 
-This gives you a practical loop: use AI to draft or adjust the workflow, use the visual diagram to understand it, and use validation plus execution to verify it.
-
-## Run Workflows from VS Code
+#### Run Workflows from VS Code
 
 Documentation is useful. Runnable documentation is better.
 
-Arazzo Visualizer includes a built-in runner engine, so you can execute workflows directly from VS Code without setting up a separate tool.
-
-You can run API calls in the order defined by the Arazzo file, pass data from one step into later steps, validate success criteria, and inspect what happened during the run.
+Arazzo Visualizer includes a built-in runner engine, so you can execute workflows directly from VS Code. It runs API calls in the order defined by the Arazzo file, passes data between steps, validates success criteria, and shows what happened during the run.
 
 ![Arazzo workflow execution demo](https://raw.githubusercontent.com/wso2/arazzo-tools/main/extensions/arazzo-visualizer/arazzo-designer-extension/assets/v3_execution_demo.gif)
 
-The runner helps answer the question that matters most:
-
-Does this workflow actually work against the API?
-
-When a workflow runs, the extension can show:
+The runner helps answer the question that matters most: does this workflow actually work against the API? During a run, the extension can show:
 
 - Live execution progress
 - Which steps passed
@@ -220,25 +199,19 @@ When a workflow runs, the extension can show:
 
 This makes Arazzo useful not only as documentation, but also as a development and testing asset.
 
-## Try with curl
+#### Try with curl
 
-Sometimes you do not want an AI-assisted flow. You just want to run the workflow directly and see the result.
+Sometimes you do not want an AI-assisted flow. You just want to run the workflow directly and see the result. That is what **Try with curl** is for.
 
-That is what **Try with curl** is for.
-
-You can trigger it from CodeLens above a workflow or from the visualizer. The extension builds the curl-based execution flow, opens the terminal output, and animates the execution path in the diagram while the workflow runs.
+You can trigger it from CodeLens above a workflow or from the visualizer. The extension builds the curl-based execution flow, opens terminal output, and animates the execution path in the diagram while the workflow runs.
 
 ![Try with curl demo](https://raw.githubusercontent.com/wso2/arazzo-tools/main/extensions/arazzo-visualizer/arazzo-designer-extension/assets/v3_curl_demo.gif)
 
 If the workflow has inputs, the extension opens an input configuration panel before running. Required fields are clearly marked, and the panel prevents the run from starting until required values are filled.
 
-This is useful for workflows that need things like usernames, IDs, tokens, environment-specific values, or other runtime parameters.
+#### Better Handling for Real Development Environments
 
-## Better Handling for Real Development Environments
-
-Real APIs are not always clean demo environments.
-
-Sometimes you are testing against local services, internal systems, staging deployments, or endpoints with self-signed certificates.
+Real APIs are not always clean demo environments. Sometimes you are testing against local services, internal systems, staging deployments, or endpoints with self-signed certificates.
 
 If a run fails because of TLS certificate validation, Arazzo Visualizer detects the certificate error and offers a shortcut to disable TLS validation for the workspace. You can also manage this manually through VS Code settings:
 
@@ -246,35 +219,25 @@ If a run fails because of TLS certificate validation, Arazzo Visualizer detects 
 Settings -> Extensions -> Arazzo Visualizer
 ```
 
-There is also a server control button in the editor toolbar while the Arazzo server is running, so you can stop it without leaving the editor.
+There is also a server control button in the editor toolbar while the Arazzo server is running, so you can stop it without leaving the editor. These details matter in day-to-day development.
 
-These are small details, but they matter in day-to-day use. Tooling should not fall apart the moment you leave the happy path.
+#### Execution Logs and Tracing
 
-## Execution Logs and Tracing
+When a workflow fails, you need more than a red icon. The extension includes execution logs and trace details so you can inspect workflow runs, review failures, look at request and response details, and identify where the flow slowed down or broke.
 
-When a workflow fails, you need more than a red icon.
-
-The extension includes execution logs and trace details so you can understand what happened step by step.
-
-You can review workflow runs, inspect failures, look at request and response details, and identify where the flow slowed down or broke.
-
-This is especially helpful for multi-step API journeys where the real problem may be several calls earlier than the failing step.
-
-For example, a checkout step may fail because the cart ID was not extracted correctly from a previous response. A visual workflow plus execution logs makes that easier to find.
+This is especially helpful for multi-step API journeys where the real problem may be several calls earlier than the failing step. For example, a checkout step may fail because the cart ID was not extracted correctly from a previous response.
 
 ## A Small Look Under the Hood
-
-This post is mainly about what the extension does, but I think the architecture is worth a quick mention.
 
 Arazzo Visualizer is built as a VS Code extension with a few cooperating parts.
 
 The language server handles the pro-code editing experience: validation, completions, diagnostics, CodeLens actions, hover information, and navigation between Arazzo workflows and OpenAPI operation definitions.
 
-The visualizer runs in a VS Code webview. It communicates with the extension through an RPC layer, keeping the diagram, editor state, workflow actions, and execution state connected.
+The visualizer runs in a VS Code webview and communicates with the extension through an RPC layer, keeping the diagram, editor state, workflow actions, and execution state connected.
 
 The runner integration makes it possible to execute workflows from the editor, the diagram, curl-based actions, or Copilot-assisted flows. Copilot can also start the Arazzo server, run workflows, and update settings such as TLS validation when needed.
 
-I plan to write a separate technical deep dive on the architecture, including the LSP, webview, RPC layer, runner, and Copilot integration. For this launch post, the important part is simpler: the extension brings authoring, visualization, navigation, and execution into one VS Code workflow.
+I plan to write a separate technical deep dive on the LSP, webview, RPC layer, runner, and Copilot integration. For this launch post, the important part is simpler: the extension brings authoring, visualization, navigation, and execution into one VS Code workflow.
 
 ## Who This Is For
 
@@ -288,9 +251,7 @@ Arazzo Visualizer is useful if you:
 - Want Copilot to help create and run API workflows
 - Prefer visual feedback when working with complex YAML or JSON files
 
-If you are already using OpenAPI, Arazzo is a natural next step when endpoint-level documentation is not enough.
-
-And if you are trying Arazzo for the first time, the extension is meant to make that first experience much less abstract.
+If you are already using OpenAPI, Arazzo is a natural next step when endpoint-level documentation is not enough. If you are trying Arazzo for the first time, the extension is meant to make that first experience much less abstract.
 
 ## Try It
 
