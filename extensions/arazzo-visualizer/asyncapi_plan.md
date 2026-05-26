@@ -37,17 +37,21 @@ Changes:
 - Extend `sourceDescriptions.type` from `openapi | arazzo` to `openapi | asyncapi | arazzo`.
 - Add new step fields:
   - `channelPath?: string`
-  - `timeout?: number`
+  - `timeout?: integer` (non-negative integer, milliseconds — not a float/number)
   - `correlationId?: string`
   - `action?: "send" | "receive"`
   - `dependsOn?: string[]`
 - Add `querystring` as a valid parameter location.
 - Widen output, parameter value, request body payload, and replacement value types so they can later accept Selector Objects.
+- Add new `parameters` field to `SuccessActionObject` (new in v1.1.0): a list of `Parameter Object | Reusable Object` to be passed to a workflow referenced by `workflowId`. The `in` field MUST NOT be used on parameters in this context. This field does not exist on `SuccessActionObject` in v1.0.1 and is absent from the current TypeScript interfaces and LSP structs.
+- Add new `parameters` field to `FailureActionObject` (new in v1.1.0, spec §5.8.8.1): identical semantics to `SuccessActionObject.parameters` — a list of `Parameter Object | Reusable Object` passed to the workflow referenced by `workflowId`. The `in` field MUST NOT be used. This field is absent from all current models (TypeScript `FailureActionObject`, LSP `FailureAction`, and CLI `Action` structs).
+- Rename `CriterionExpressionObject` / `Criterion Expression Type Object` (v1.0.1 name) to `ExpressionTypeObject` throughout all TypeScript interfaces, LSP parser structs, completion code, and validation code. The v1.1.0 spec renames this object and also adds `jsonpointer` as a new allowed `type` value (v1.0.1 only had `jsonpath` and `xpath`). Additionally: the **existing TypeScript `CriterionExpressionObject` interface has a bug — it names the field `expression` instead of the spec-correct `version`** (this is wrong in both v1.0.1 and v1.1.0 — the spec has always called this field `version`). The rename and field correction must happen together. Audit every reference to the old object name AND the old field name `expression` across `arazzo-designer-core`, `arazzo-designer-lsp`, and the CLI Go models.
 - Centralize or closely align the schema shape across:
   - `arazzo-designer-core` TypeScript interfaces
   - LSP parser structs
   - CLI runner Go models
   - visualizer data assumptions
+- Note pre-existing LSP gap to fix in this phase: the LSP parser `RequestBody` Go struct (`arazzo-designer-lsp/parser/ast.go`) is missing the `Replacements []Replacement` field that already exists in the CLI model and the TypeScript interfaces. Add it now so the LSP is consistent before Phase 6 extends the replacement object.
 
 Validation in this phase:
 - Accept `arazzo: 1.1.0`.
@@ -92,19 +96,30 @@ Changes:
   - `$message.payload`
   - `$message.header`
   - `$self`
+  - `parameters` on `SuccessActionObject`
+  - `parameters` on `FailureActionObject`
 - Update LSP validation:
-  - validate `$self` as a URI-reference without a fragment.
+  - validate `$self` as a URI-reference without a fragment (spec §5.8.1.1: `$self` MUST NOT contain a fragment identifier).
   - validate `sourceDescriptions.type`.
   - validate `action` is only `send` or `receive`.
   - validate `timeout` is a non-negative integer in milliseconds.
-  - validate `dependsOn` step IDs exist.
+  - validate `dependsOn` step references — three valid forms are accepted: (1) bare `stepId` (local workflow step), (2) `$workflows.<workflowId>.steps.<stepId>` (step in another workflow in this document), (3) `$sourceDescriptions.<name>.<workflowId>.steps.<stepId>` (step in an external Arazzo document). Any other form is invalid.
   - validate `channelPath` is used for AsyncAPI references.
   - validate `correlationId` is meaningful for AsyncAPI receive-style steps.
-  - validate component key naming rules from the spec.
+  - validate component key naming rules from the spec (`^[a-zA-Z0-9\.\-_]+$`).
+  - validate that `successCriteria`, when present, contains at least one Criterion Object (empty array is invalid — new MUST in v1.1.0 §5.8.5.1).
+  - validate `SuccessActionObject.parameters`: the `in` field MUST NOT be set on any parameter in this list.
+  - validate `FailureActionObject.parameters`: the `in` field MUST NOT be set on any parameter in this list (same rule as SuccessActionObject — spec §5.8.8.1).
 
 Tests:
 - Completion tests for every new field and enum value.
-- Validation tests for bad `$self`, bad `action`, bad `timeout`, invalid `dependsOn`, invalid source type, and duplicate target selectors.
+- Validation tests for bad `$self`, bad `action`, bad `timeout`, invalid source type, and duplicate target selectors.
+- `dependsOn` with a bare local stepId that exists passes; a non-existent stepId fails.
+- `dependsOn` with `$workflows.<wf>.steps.<s>` cross-workflow form is accepted and validated.
+- `dependsOn` with an unrecognized form (e.g. plain string that is not a valid stepId or expression) fails.
+- Empty `successCriteria: []` fails validation.
+- `SuccessActionObject.parameters` entry with `in: query` fails validation.
+- `FailureActionObject.parameters` entry with `in: header` fails validation.
 
 Checkpoint:
 - Users can author v1.1.0 files with useful completions and correct diagnostics.
@@ -115,17 +130,22 @@ Checkpoint:
 Goal: correctly resolve source documents in v1.1.0.
 
 Changes:
-- Parse complete Arazzo documents before resolving external references.
-- Use `$self` as the document identity/base URI when present.
-- Fall back to the retrieval URI or local file path when `$self` is absent.
-- Resolve relative `sourceDescriptions.url` values against `$self` or retrieval URI.
-- Match external Arazzo documents by `$self` when present.
-- Preserve current local relative file behavior for v1.0.x files.
+- Enforce full-document parsing before resolving any references (spec §5.5.1: implementations MUST parse entire documents before resolving references; fragmentary parsing produces undefined behavior). The entire Arazzo document must be loaded and parsed so that `$self` and all source description `url` fields are known before any reference resolution begins. This applies to the LSP loader, the CLI loader, and the RPC client.
+- Establish the base URI using RFC3986 §5.1.1–5.1.4 priority order:
+  - If `$self` is present and is an **absolute** URI: use it directly as the base URI.
+  - If `$self` is present and is a **relative** URI-reference: first resolve it against the next applicable base URI source (retrieval URI, encapsulating entity, or application default per RFC3986 §5.1.2–5.1.4), then use the resulting absolute URI as the base URI.
+  - If `$self` is absent: use the retrieval URI (file path or HTTP URL) as the base URI.
+- Resolve relative `sourceDescriptions.url` values against the base URI established above.
+- When referencing external Arazzo documents, use identity-based matching: if the target document has a `$self` field, the reference MUST match the `$self` URI, not just the retrieval location (spec §5.5.2).
+- Preserve current local relative file behavior for v1.0.x files (no `$self` → use file path as base URI).
 
 Tests:
 - Relative OpenAPI source resolved from local file path when `$self` is absent.
-- Relative source resolved from `$self` when `$self` is present.
+- Relative source resolved correctly when `$self` is an absolute URI.
+- Relative `$self` is first resolved against the retrieval URI, and the resulting absolute URI is then used as the base URI for further relative references.
 - Remote-style `$self` plus relative source URL produces the expected absolute URI.
+- Two documents referencing the same `$self` URI are treated as the same document (identity over location).
+- A document is fully parsed before any reference within it is resolved.
 - Existing examples still load.
 
 Checkpoint:
@@ -141,13 +161,17 @@ Changes:
   - `context`
   - `selector`
   - `type`
-- Add `ExpressionTypeObject`:
-  - `type: "jsonpath" | "xpath" | "jsonpointer"`
-  - optional `version`
-  - defaults:
-    - JSONPath: `rfc9535`
-    - XPath: `xpath-31`
-    - JSON Pointer: `rfc6901`
+- Add `ExpressionTypeObject` (renamed from `Criterion Expression Type Object` in v1.0.1; also adds `jsonpointer` as a new `type` value):
+  - `type: "jsonpath" | "xpath" | "jsonpointer"` (REQUIRED)
+  - `version: string` (REQUIRED when this object is used — validation must reject an ExpressionTypeObject that omits `version`)
+  - Allowed `version` values per `type`:
+    - `jsonpath`: `rfc9535`, `draft-goessner-dispatch-jsonpath-00`
+    - `xpath`: `xpath-31`, `xpath-30`, `xpath-20`, `xpath-10`
+    - `jsonpointer`: `rfc6901`
+  - When the ExpressionTypeObject is **not present at all**, tooling applies these defaults automatically (these are not defaults within the object — the object always requires both fields):
+    - JSONPath default: `rfc9535`
+    - XPath default: `xpath-31`
+    - JSON Pointer default: `rfc6901`
 - Allow Selector Objects anywhere v1.1.0 permits them:
   - workflow outputs
   - step outputs
@@ -184,7 +208,7 @@ Changes:
   - `$message.payload`
   - `$message.payload#/...`
   - `$self`
-  - `$sourceDescriptions.<name>.<field-or-id>`
+  - `$sourceDescriptions.<name>.<id>` — implement the two-step resolution priority defined in spec §5.9.2: (1) match `<id>` against operationId or workflowId in the named source description; (2) only if no match, treat `<id>` as a field name on the Source Description Object itself (e.g., `url`). This priority must be implemented explicitly in the evaluator; ambiguous resolution is not permitted.
   - `$components.successActions.*`
   - `$components.failureActions.*`
 - Add embedded expression serialization rules:
@@ -248,15 +272,18 @@ Changes:
 - Honor explicit step `dependsOn`.
 - Infer dependencies from expressions like `$steps.<stepId>.outputs.<name>` where safe.
 - Detect impossible dependency graphs:
-  - missing step ID
+  - missing step ID (local, cross-workflow via `$workflows.*`, or cross-document via `$sourceDescriptions.*`)
   - circular dependencies
   - dependency that never completes
+- Note: `dependsOn` establishes a prerequisite relationship only — it does NOT trigger execution of the referenced steps. The runner must not re-execute an already-completed prerequisite step when a later step's `dependsOn` lists it. The runner waits for the depended-on step to complete if it has not yet done so.
 - Keep `onSuccess`, `onFailure`, `goto`, `end`, and `retry` behavior compatible with current behavior.
 - Clarify precedence between retry exhaustion and following failure actions.
 
 Tests:
 - Existing OpenAPI examples still run.
 - Explicit `dependsOn` waits for required steps.
+- `dependsOn` with a cross-workflow reference (`$workflows.<wf>.steps.<s>`) resolves and waits correctly.
+- An already-completed step is not re-executed when another step lists it in `dependsOn`.
 - Implicit `$steps.x.outputs.y` dependency is respected.
 - Circular dependency fails clearly.
 - Retry behavior still works.
