@@ -1,0 +1,206 @@
+# Arazzo v1.1.0 — New Phase 1 fields with OpenAPI operations
+# Tests all new Phase 1 structural fields (no AsyncAPI — purely OpenAPI-targeted).
+# Expected: no LSP errors, all new fields are accepted and highlighted.
+
+arazzo: "1.1.0"
+
+# v1.1.0: $self — a URL reference to the Arazzo description itself
+$self: https://api.example.com/workflows/user-management.arazzo.yaml
+
+info:
+  title: User Management Workflow (v1.1.0 Phase 1 test)
+  version: "2.0.0"
+  description: >
+    Demonstrates all new Phase 1 fields introduced in Arazzo v1.1.0
+    for OpenAPI-targeted steps.
+
+sourceDescriptions:
+  - name: userApi
+    url: https://api.example.com/openapi.yaml
+    type: openapi
+
+components:
+  inputs:
+    UserInputSchema:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+      required:
+        - username
+        - email
+
+  parameters:
+    AuthHeader:
+      name: Authorization
+      in: header
+      value: Bearer $inputs.token
+
+  # v1.1.0: reusable success/failure actions are now in components
+  successActions:
+    LogAndEnd:
+      name: LogAndEnd
+      type: end
+
+  failureActions:
+    RetryOnTimeout:
+      name: RetryOnTimeout
+      type: retry
+      retryAfter: 5
+      retryLimit: 3
+
+workflows:
+  - workflowId: createUserWorkflow
+    summary: Create a user and set up their profile
+    description: >
+      Full user onboarding: create account, verify email, set up profile.
+    inputs:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        token:
+          type: string
+      required:
+        - username
+        - email
+        - token
+    parameters:
+      - $ref: $components.parameters.AuthHeader
+
+    # workflow-level dependsOn (already supported in v1.0.x — preserved)
+    dependsOn: []
+
+    steps:
+      - stepId: createAccount
+        description: Create the new user account
+        operationId: createUser
+        parameters:
+          - name: Authorization
+            in: header          # standard header parameter
+            value: Bearer $inputs.token
+          - name: X-Request-ID
+            in: querystring     # v1.1.0: 'querystring' is now a valid 'in' value
+            value: req-$inputs.username
+        requestBody:
+          contentType: application/json
+          payload:
+            username: $inputs.username
+            email: $inputs.email
+          replacements:
+            - target: /username
+              value: $inputs.username
+            - target: /email
+              value: $inputs.email
+        successCriteria:
+          - condition: $statusCode == 201
+            type: simple
+          - context: $response.body
+            condition: $.userId != null
+            # v1.1.0 ExpressionTypeObject: use rfc9535 (new JSONPath version)
+            type:
+              type: jsonpath
+              version: rfc9535
+        timeout: 30000    # v1.1.0: 30-second timeout for this step
+        outputs:
+          userId: $response.body.userId
+          accountStatus: $response.body.status
+
+      - stepId: verifyEmail
+        description: Send email verification
+        operationId: sendVerificationEmail
+        # v1.1.0: step-level dependsOn — verifyEmail must run after createAccount
+        dependsOn:
+          - createAccount
+        parameters:
+          - name: userId
+            in: path
+            value: $steps.createAccount.outputs.userId
+        successCriteria:
+          - condition: $statusCode == 200
+        onSuccess:
+          - name: proceedToProfile
+            type: goto
+            stepId: createProfile
+            # v1.1.0: parameters on success action (passed to the next step's workflow context)
+            parameters:
+              - name: userId
+                in: path
+                value: $steps.createAccount.outputs.userId
+        onFailure:
+          - name: retryVerification
+            type: retry
+            retryAfter: 10
+            retryLimit: 2
+            # v1.1.0: parameters on failure action
+            parameters:
+              - name: userId
+                in: path
+                value: $steps.createAccount.outputs.userId
+        outputs:
+          verificationSent: $response.body.sent
+
+      - stepId: createProfile
+        description: Set up the user's profile
+        operationId: createUserProfile
+        dependsOn:
+          - createAccount
+          - verifyEmail
+        parameters:
+          - name: userId
+            in: path
+            value: $steps.createAccount.outputs.userId
+        requestBody:
+          contentType: application/json
+          payload:
+            displayName: $inputs.username
+        successCriteria:
+          - condition: $statusCode == 201
+          - context: $response.body
+            condition: "$.profileId"
+            type:
+              type: jsonpath
+              version: draft-goessner-dispatch-jsonpath-00
+        onSuccess:
+          - $ref: $components.successActions.LogAndEnd
+        timeout: 15000
+        outputs:
+          profileId: $response.body.profileId
+
+    outputs:
+      newUserId: $steps.createAccount.outputs.userId
+      profileId: $steps.createProfile.outputs.profileId
+
+  - workflowId: deleteUserWorkflow
+    summary: Delete a user account
+    # workflow-level dependsOn: this workflow depends on createUserWorkflow completing first
+    dependsOn:
+      - createUserWorkflow
+    inputs:
+      type: object
+      properties:
+        userId:
+          type: string
+      required:
+        - userId
+
+    steps:
+      - stepId: deleteUser
+        description: Delete the user account
+        operationId: deleteUser
+        parameters:
+          - name: userId
+            in: path
+            value: $inputs.userId
+        successCriteria:
+          - condition: $statusCode == 204
+        onFailure:
+          - $ref: $components.failureActions.RetryOnTimeout
+        outputs: {}
+
+    outputs:
+      deleted: "true"
