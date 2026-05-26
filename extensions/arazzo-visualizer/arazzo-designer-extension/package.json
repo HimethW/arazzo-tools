@@ -239,7 +239,7 @@
     "prepare-binaries": "pnpm run build-cli && pnpm run build-lsp && pnpm run ensure-cli-executable",
     "ensure-cli-executable": "node ./scripts/ensure-cli-executable.js",
     "package": "pnpm run prepare-binaries && node ../common-libs/scripts/package-vsix.js",
-    "build-lsp": "cd ../arazzo-designer-lsp && bash build.sh",
+    "build-lsp": "node ./scripts/build-lsp.js",
     "build": "pnpm clean && pnpm run copyFonts && webpack --mode production --devtool hidden-source-map && pnpm run package && pnpm run postbuild",
     "compile-tests": "pnpm run compile",
     "watch-tests": "pnpm run watch",
