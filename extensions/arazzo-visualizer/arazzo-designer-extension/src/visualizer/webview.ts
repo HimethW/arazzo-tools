@@ -112,7 +112,8 @@ export class VisualizerWebview {
                 enableScripts: true,
                 retainContextWhenHidden: true,
                 localResourceRoots: [
-                    vscode.Uri.file(os.homedir())
+                    vscode.Uri.file(os.homedir()),
+                    vscode.Uri.file(path.join(extension.context.extensionPath, 'assets'))
                 ]
             }
         );
