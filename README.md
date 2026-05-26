@@ -39,3 +39,11 @@ rush build -t arazzo-visualizer
    - Press `F5` (or click **Run and Debug** > **Run Extension**).
    - A new [Extension Development Host] window will open.
 
+
+```powershell
+#if the watcher keeps failing
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+#then later
+Set-ExecutionPolicy Undefined -Scope CurrentUser
+```
