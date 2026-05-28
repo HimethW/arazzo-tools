@@ -49,7 +49,7 @@ export interface ArazzoInfo {
 export interface SourceDescription {
     name: string;
     url: string;
-    type: 'openapi' | 'asyncapi' | 'arazzo'; // asyncapi added in v1.1.0
+    type?: 'openapi' | 'asyncapi' | 'arazzo'; // optional per spec §5.8.3; asyncapi added in v1.1.0
 
     // Optional headers required to fetch the source spec(auth)
     'x-headers'?: Record<string, string>;
@@ -84,7 +84,7 @@ export interface ArazzoWorkflow {
     // Data exposed after the workflow finishes.
     // Maps internal step data to external output variables.
     // Example: { "finalizedPaymentPlan": "$steps.retrieveFinalizedPaymentPlan.finalizedPaymentPlan" }
-    outputs?: Record<string, string | any>;
+    outputs?: Record<string, string | SelectorObject | any>;
 
 }
 
@@ -148,7 +148,7 @@ export interface StepObject {
     /** * Output mapping.
      * Stores parts of the response into variables for later steps.
      */
-    outputs?: Record<string, any>;
+    outputs?: Record<string, string | SelectorObject | any>;
 }
 
 export interface SuccessActionObject {
@@ -193,25 +193,37 @@ export interface ExpressionTypeObject {
 
 export interface Parameter {
     name: string;
-    in: 'header' | 'query' | 'querystring' | 'path' | 'cookie'; // 'querystring' added in v1.1.0
+    in?: 'header' | 'query' | 'querystring' | 'path' | 'cookie'; // optional per spec §5.8.6; omitted when workflowId context; 'querystring' added v1.1.0
     //description?: string;
     //required?: boolean;
-    value: any;  //can be a runtime expression or a raw value
+    value: string | number | boolean | SelectorObject | any;  //can be a runtime expression, raw value, or Selector Object
     //schema?: JSONSchema;
 }
 
 export interface RequestBody {
     contentType?: string; // e.g., "application/json"
-    // The payload can be a raw object or a stringified JSON with injected variables.
-    payload: any;
+    // The payload can be a raw object, a stringified JSON with injected variables, or Selector Objects.
+    payload?: any; // optional per spec §5.8.14; replacements alone may be sufficient
     replacements?: PayloadReplacementObject[];
 }
 
 export interface PayloadReplacementObject {
-    // JSONPath to locate the field in the payload 
+    // JSON Pointer, XPath, or JSONPath to locate the field in the payload
     target: string;
-    // The value or runtime expression to inject
-    value: string | any;
+    // Selector type for target — optional; defaults to JSON Pointer (JSON) or XPath (XML) per spec §5.8.15
+    targetSelectorType?: string | ExpressionTypeObject;
+    // The value or runtime expression or Selector Object to inject
+    value: string | number | boolean | SelectorObject | any;
+}
+
+/** v1.1.0 §5.8.13: Fine-grained data selection from structured data using JSONPath, XPath, or JSON Pointer */
+export interface SelectorObject {
+    /** REQUIRED. Runtime expression evaluating to structured data (e.g. $response.body) */
+    context: string;
+    /** REQUIRED. Selector expression (JSONPath, XPath, or JSON Pointer) */
+    selector: string;
+    /** REQUIRED. Type of selector expression */
+    type: 'jsonpath' | 'xpath' | 'jsonpointer' | ExpressionTypeObject;
 }
 
 // Reusable Components (For complex specs)
