@@ -243,6 +243,16 @@ func (v *Validator) validateSteps(workflow *parser.Workflow, doc *parser.ArazzoD
 			})
 		}
 
+		// Validate that action is "send" or "receive" when channelPath is set
+		if step.ChannelPath != "" && step.Action != "" && step.Action != "send" && step.Action != "receive" {
+			errors = append(errors, ValidationError{
+				Line:     step.LineNumber,
+				Column:   0,
+				Message:  fmt.Sprintf("Step '%s': Invalid action '%s' (must be 'send' or 'receive')", step.StepID, step.Action),
+				Severity: "error",
+			})
+		}
+
 		// Validate runtime expressions
 		errors = append(errors, v.validateRuntimeExpressions(&step, workflow, doc)...)
 	}
