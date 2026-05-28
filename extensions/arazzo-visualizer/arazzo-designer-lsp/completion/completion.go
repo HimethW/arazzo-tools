@@ -228,6 +228,13 @@ func (c *CompletionProvider) getFieldValueCompletions(beforeCursor string) []pro
 		)
 	}
 
+	if strings.Contains(beforeCursor, "action:") {
+		items = append(items,
+			protocol.CompletionItem{Label: "send", Kind: protocol.CompletionItemKindValue, InsertText: "send"},
+			protocol.CompletionItem{Label: "receive", Kind: protocol.CompletionItemKindValue, InsertText: "receive"},
+		)
+	}
+
 	if strings.Contains(beforeCursor, "in:") {
 		items = append(items,
 			protocol.CompletionItem{Label: "query", Kind: protocol.CompletionItemKindValue, InsertText: "query"},
