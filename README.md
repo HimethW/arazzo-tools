@@ -14,7 +14,7 @@ Rush manages a project-specific version of `pnpm` (currently v10.11.0). To build
 ```powershell
 # PowerShell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-$env:PATH = "C:\Users\himet\.rush\node-v22.15.0\pnpm-10.11.0\node_modules\.bin;" + $env:PATH
+$env:PATH = "$env:USERPROFILE\.rush\node-v22.15.0\pnpm-10.11.0\node_modules\.bin;" + $env:PATH
 ```
 
 ### 3. Build Instructions
@@ -40,10 +40,14 @@ rush build -t arazzo-visualizer
    - A new [Extension Development Host] window will open.
 
 
-```powershell
-#if the watcher keeps failing
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+If the watcher keeps failing due to PowerShell execution policy restrictions, run:
 
-#then later
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+After debugging, restore the previous state with:
+
+```powershell
 Set-ExecutionPolicy Undefined -Scope CurrentUser
 ```

@@ -9,6 +9,7 @@ This folder contains test examples for Phase 1 of the Arazzo v1.1.0 implementati
 | `v101-backward-compat.arazzo.yaml` | Verifies that an existing Arazzo v1.0.1 document still parses without errors |
 | `v110-openapi-new-fields.arazzo.yaml` | Arazzo v1.1.0 document using new Phase 1 fields with OpenAPI operations (`$self`, new parameter types, step `dependsOn`, widened outputs, `parameters` in actions, new ExpressionTypeObject format) |
 | `v110-asyncapi-channel.arazzo.yaml` | Arazzo v1.1.0 document using the new `channelPath`, `action`, `correlationId`, and `timeout` fields targeting an AsyncAPI source |
+| `invalid-v110.arazzo.yaml` | Intentionally invalid Arazzo v1.1.0 document; expects validation errors / specific diagnostics from the LSP |
 
 ## What Phase 1 validates
 
