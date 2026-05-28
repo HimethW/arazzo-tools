@@ -22,6 +22,13 @@ if (!fs.existsSync(path.join(lspProjectDir, 'go.mod'))) {
     process.exit(1);
 }
 
+// Verify Go is installed before attempting to build
+const goCheck = spawnSync('go', ['version'], { encoding: 'utf8' });
+if (goCheck.error || goCheck.status !== 0) {
+    console.error('Go not found in PATH; please install Go or add it to PATH.');
+    process.exit(1);
+}
+
 // Clean and recreate output directory
 fs.rmSync(outputDir, { recursive: true, force: true });
 fs.mkdirSync(outputDir, { recursive: true });
