@@ -223,6 +223,7 @@ func (c *CompletionProvider) getFieldValueCompletions(beforeCursor string) []pro
 	if strings.Contains(beforeCursor, "type:") {
 		items = append(items,
 			protocol.CompletionItem{Label: "openapi", Kind: protocol.CompletionItemKindValue, InsertText: "openapi"},
+			protocol.CompletionItem{Label: "asyncapi", Kind: protocol.CompletionItemKindValue, InsertText: "asyncapi"},
 			protocol.CompletionItem{Label: "arazzo", Kind: protocol.CompletionItemKindValue, InsertText: "arazzo"},
 		)
 	}
@@ -230,6 +231,7 @@ func (c *CompletionProvider) getFieldValueCompletions(beforeCursor string) []pro
 	if strings.Contains(beforeCursor, "in:") {
 		items = append(items,
 			protocol.CompletionItem{Label: "query", Kind: protocol.CompletionItemKindValue, InsertText: "query"},
+			protocol.CompletionItem{Label: "querystring", Kind: protocol.CompletionItemKindValue, InsertText: "querystring"},
 			protocol.CompletionItem{Label: "header", Kind: protocol.CompletionItemKindValue, InsertText: "header"},
 			protocol.CompletionItem{Label: "path", Kind: protocol.CompletionItemKindValue, InsertText: "path"},
 			protocol.CompletionItem{Label: "cookie", Kind: protocol.CompletionItemKindValue, InsertText: "cookie"},
@@ -243,7 +245,7 @@ func (c *CompletionProvider) getFieldValueCompletions(beforeCursor string) []pro
 // getTopLevelCompletions returns top-level field completions
 func (c *CompletionProvider) getTopLevelCompletions() []protocol.CompletionItem {
 	return []protocol.CompletionItem{
-		{Label: "arazzo", Kind: protocol.CompletionItemKindField, Detail: "Arazzo version", InsertText: "arazzo: \"1.0.1\""},
+		{Label: "arazzo", Kind: protocol.CompletionItemKindField, Detail: "Arazzo version", InsertText: "arazzo: \"1.1.0\""},
 		{Label: "info", Kind: protocol.CompletionItemKindField, Detail: "Metadata about the document", InsertText: "info:\n  title: \n  version: "},
 		{Label: "sourceDescriptions", Kind: protocol.CompletionItemKindField, Detail: "API descriptions", InsertText: "sourceDescriptions:\n  - name: \n    url: \n    type: openapi"},
 		{Label: "workflows", Kind: protocol.CompletionItemKindField, Detail: "Workflow definitions", InsertText: "workflows:\n  - workflowId: \n    steps:\n      - stepId: "},
@@ -320,9 +322,8 @@ func (c *CompletionProvider) getContextualCompletions(context string, beforeCurs
 			protocol.CompletionItem{Label: "outputs", Kind: protocol.CompletionItemKindField, Detail: "Output values", InsertText: "outputs:\n  "},
 			protocol.CompletionItem{Label: "parameters", Kind: protocol.CompletionItemKindField, Detail: "Reusable parameters", InsertText: "parameters:\n  - name: \n    in: query\n    value: "},
 			protocol.CompletionItem{Label: "dependsOn", Kind: protocol.CompletionItemKindField, Detail: "Workflow dependencies", InsertText: "dependsOn:\n  - "},
-			protocol.CompletionItem{Label: "successCriteria", Kind: protocol.CompletionItemKindField, Detail: "Success conditions", InsertText: "successCriteria:\n  - condition: "},
-			protocol.CompletionItem{Label: "onSuccess", Kind: protocol.CompletionItemKindField, Detail: "Success actions", InsertText: "onSuccess:\n  - name: \n    type: "},
-			protocol.CompletionItem{Label: "onFailure", Kind: protocol.CompletionItemKindField, Detail: "Failure actions", InsertText: "onFailure:\n  - name: \n    type: "},
+			protocol.CompletionItem{Label: "successActions", Kind: protocol.CompletionItemKindField, Detail: "Reusable success actions for the workflow", InsertText: "successActions:\n  - name: \n    type: "},
+			protocol.CompletionItem{Label: "failureActions", Kind: protocol.CompletionItemKindField, Detail: "Reusable failure actions for the workflow", InsertText: "failureActions:\n  - name: \n    type: "},
 		)
 
 	case "step":
@@ -332,7 +333,12 @@ func (c *CompletionProvider) getContextualCompletions(context string, beforeCurs
 			protocol.CompletionItem{Label: "description", Kind: protocol.CompletionItemKindField, Detail: "Step description", InsertText: "description: "},
 			protocol.CompletionItem{Label: "operationId", Kind: protocol.CompletionItemKindField, Detail: "OpenAPI operation ID", InsertText: "operationId: "},
 			protocol.CompletionItem{Label: "operationPath", Kind: protocol.CompletionItemKindField, Detail: "Operation path reference", InsertText: "operationPath: "},
+			protocol.CompletionItem{Label: "channelPath", Kind: protocol.CompletionItemKindField, Detail: "AsyncAPI channel reference (v1.1.0)", InsertText: "channelPath: "},
 			protocol.CompletionItem{Label: "workflowId", Kind: protocol.CompletionItemKindField, Detail: "Reference to another workflow", InsertText: "workflowId: "},
+			protocol.CompletionItem{Label: "timeout", Kind: protocol.CompletionItemKindField, Detail: "Max execution time in milliseconds (v1.1.0)", InsertText: "timeout: "},
+			protocol.CompletionItem{Label: "correlationId", Kind: protocol.CompletionItemKindField, Detail: "AsyncAPI correlation ID expression (v1.1.0)", InsertText: "correlationId: "},
+			protocol.CompletionItem{Label: "action", Kind: protocol.CompletionItemKindField, Detail: "AsyncAPI message direction: send or receive (v1.1.0)", InsertText: "action: send"},
+			protocol.CompletionItem{Label: "dependsOn", Kind: protocol.CompletionItemKindField, Detail: "Step prerequisites (v1.1.0)", InsertText: "dependsOn:\n  - "},
 			protocol.CompletionItem{Label: "parameters", Kind: protocol.CompletionItemKindField, Detail: "Step parameters", InsertText: "parameters:\n  - name: \n    in: query\n    value: "},
 			protocol.CompletionItem{Label: "requestBody", Kind: protocol.CompletionItemKindField, Detail: "Request body", InsertText: "requestBody:\n  contentType: application/json\n  payload:\n    "},
 			protocol.CompletionItem{Label: "successCriteria", Kind: protocol.CompletionItemKindField, Detail: "Success conditions", InsertText: "successCriteria:\n  - condition: $statusCode == 200"},
