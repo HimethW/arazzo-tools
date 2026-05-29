@@ -337,14 +337,14 @@ func (v *Validator) validateSteps(workflow *parser.Workflow, doc *parser.ArazzoD
 		//   - parameters only valid when workflowId is set
 		//   - 'in' MUST NOT be used
 		for i, action := range step.OnSuccess {
-			errors = append(errors, v.validateActionParameters(action.Parameters, action.WorkflowID, fmt.Sprintf("onSuccess[%d]", i), step.StepID, step.LineNumber)...)
+			errors = append(errors, v.validateActionParameters(action.Parameters, action.WorkflowID, "Arazzo spec section 5.8.7.1", fmt.Sprintf("onSuccess[%d]", i), step.StepID, step.LineNumber)...)
 		}
 
 		// Validate onFailure action parameters (spec §5.8.8.1):
 		//   - parameters only valid when workflowId is set
 		//   - 'in' MUST NOT be used
 		for i, action := range step.OnFailure {
-			errors = append(errors, v.validateActionParameters(action.Parameters, action.WorkflowID, fmt.Sprintf("onFailure[%d]", i), step.StepID, step.LineNumber)...)
+			errors = append(errors, v.validateActionParameters(action.Parameters, action.WorkflowID, "Arazzo spec section 5.8.8.1", fmt.Sprintf("onFailure[%d]", i), step.StepID, step.LineNumber)...)
 		}
 
 		// Validate runtime expressions
@@ -434,7 +434,7 @@ func (v *Validator) validateSelf(doc *parser.ArazzoDocument) []ValidationError {
 		errors = append(errors, ValidationError{
 			Line:     0,
 			Column:   0,
-			Message:  "The '$self' field MUST NOT contain a fragment identifier (#) (spec §5.8.1.1)",
+			Message:  "The '$self' field MUST NOT contain a fragment identifier (#) (Arazzo spec section 5.8.1.1)",
 			Severity: "error",
 		})
 	}
@@ -587,10 +587,10 @@ func (v *Validator) validateDependsOn(step *parser.Step, workflow *parser.Workfl
 }
 
 // validateActionParameters validates Parameter Objects in SuccessAction and FailureAction.
-// Per spec §5.8.7.1 and §5.8.8.1:
+// Per spec §5.8.7.1 (SuccessAction) and §5.8.8.1 (FailureAction):
 //   - 'parameters' are ONLY meaningful when the action specifies a 'workflowId'
 //   - the 'in' field MUST NOT be used (parameters map to workflow inputs, not HTTP operations)
-func (v *Validator) validateActionParameters(params []parser.Parameter, workflowID string, actionRef string, stepID string, lineNumber int) []ValidationError {
+func (v *Validator) validateActionParameters(params []parser.Parameter, workflowID string, specRef string, actionRef string, stepID string, lineNumber int) []ValidationError {
 	var errors []ValidationError
 	if len(params) == 0 {
 		return errors
@@ -599,7 +599,7 @@ func (v *Validator) validateActionParameters(params []parser.Parameter, workflow
 		errors = append(errors, ValidationError{
 			Line:     lineNumber,
 			Column:   0,
-			Message:  fmt.Sprintf("Step '%s': %s has 'parameters' but no 'workflowId' — parameters are only valid when the action references a workflow (spec §5.8.7.1)", stepID, actionRef),
+			Message:  fmt.Sprintf("Step '%s': %s has 'parameters' but no 'workflowId' — parameters are only valid when the action references a workflow (spec %s)", stepID, actionRef, specRef),
 			Severity: "error",
 		})
 		return errors
@@ -609,7 +609,7 @@ func (v *Validator) validateActionParameters(params []parser.Parameter, workflow
 			errors = append(errors, ValidationError{
 				Line:     lineNumber,
 				Column:   0,
-				Message:  fmt.Sprintf("Step '%s': %s parameters[%d]: the 'in' field MUST NOT be used on action parameters (spec §5.8.7.1)", stepID, actionRef, i),
+				Message:  fmt.Sprintf("Step '%s': %s parameters[%d]: the 'in' field MUST NOT be used on action parameters (spec %s)", stepID, actionRef, i, specRef),
 				Severity: "error",
 			})
 		}
