@@ -265,7 +265,7 @@ func (v *Validator) validateSteps(workflow *parser.Workflow, doc *parser.ArazzoD
 		// Validate channelPath format and source description type (spec §5.8.3)
 		if step.ChannelPath != "" {
 			parts := strings.SplitN(step.ChannelPath, "#", 2)
-			if len(parts) < 2 || parts[0] == "" {
+			if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 				errors = append(errors, ValidationError{
 					Line:     step.LineNumber,
 					Column:   0,
@@ -508,6 +508,15 @@ func (v *Validator) validateDependsOn(step *parser.Step, workflow *parser.Workfl
 			}
 			prefixParts := strings.SplitN(rest[:stepsIdx], ".", 2)
 			if len(prefixParts) < 2 || prefixParts[0] == "" || prefixParts[1] == "" {
+				errors = append(errors, ValidationError{
+					Line:     step.LineNumber,
+					Column:   0,
+					Message:  fmt.Sprintf("Step '%s': invalid dependsOn reference '%s' (external form must be '$sourceDescriptions.<name>.<workflowId>.steps.<stepId>')", step.StepID, dep),
+					Severity: "error",
+				})
+			}
+			refStepID := rest[stepsIdx+len(".steps."):]
+			if refStepID == "" {
 				errors = append(errors, ValidationError{
 					Line:     step.LineNumber,
 					Column:   0,
