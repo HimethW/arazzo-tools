@@ -10,9 +10,9 @@ import (
 
 // ValidationError represents a validation error
 type ValidationError struct {
-	Line    int
-	Column  int
-	Message string
+	Line     int
+	Column   int
+	Message  string
 	Severity string // "error" or "warning"
 }
 
@@ -30,7 +30,7 @@ func NewValidator() *Validator {
 
 // Validate validates an Arazzo document and returns validation errors
 func (v *Validator) Validate(doc *parser.ArazzoDocument) []ValidationError {
-	var errors []ValidationError
+	errors := []ValidationError{}
 
 	// Validate document-level fields
 	errors = append(errors, v.validateDocumentLevel(doc)...)
@@ -56,11 +56,11 @@ func (v *Validator) validateDocumentLevel(doc *parser.ArazzoDocument) []Validati
 			Message:  "Missing required field 'arazzo'",
 			Severity: "error",
 		})
-	} else if doc.Arazzo != "1.0.0" && doc.Arazzo != "1.0.1" {
+	} else if doc.Arazzo != "1.0.0" && doc.Arazzo != "1.0.1" && doc.Arazzo != "1.1.0" {
 		errors = append(errors, ValidationError{
 			Line:     0,
 			Column:   0,
-			Message:  fmt.Sprintf("Invalid arazzo version: %s (expected 1.0.0 or 1.0.1)", doc.Arazzo),
+			Message:  fmt.Sprintf("Invalid arazzo version: %s (expected 1.0.0, 1.0.1, or 1.1.0)", doc.Arazzo),
 			Severity: "error",
 		})
 	}
@@ -127,11 +127,11 @@ func (v *Validator) validateSourceDescriptions(doc *parser.ArazzoDocument) []Val
 				Severity: "error",
 			})
 		}
-		if sd.Type != "" && sd.Type != "openapi" && sd.Type != "arazzo" {
+		if sd.Type != "" && sd.Type != "openapi" && sd.Type != "asyncapi" && sd.Type != "arazzo" {
 			errors = append(errors, ValidationError{
 				Line:     0,
 				Column:   0,
-				Message:  fmt.Sprintf("sourceDescriptions[%d]: Invalid type '%s' (must be 'openapi' or 'arazzo')", i, sd.Type),
+				Message:  fmt.Sprintf("sourceDescriptions[%d]: Invalid type '%s' (must be 'openapi', 'asyncapi', or 'arazzo')", i, sd.Type),
 				Severity: "error",
 			})
 		}
@@ -212,12 +212,15 @@ func (v *Validator) validateSteps(workflow *parser.Workflow, doc *parser.ArazzoD
 			})
 		}
 
-		// Validate that step has exactly one of: operationId, operationPath, or workflowId
+		// Validate that step has exactly one of: operationId, operationPath, channelPath, or workflowId
 		actionCount := 0
 		if step.OperationID != "" {
 			actionCount++
 		}
 		if step.OperationPath != "" {
+			actionCount++
+		}
+		if step.ChannelPath != "" {
 			actionCount++
 		}
 		if step.WorkflowID != "" {
@@ -228,14 +231,24 @@ func (v *Validator) validateSteps(workflow *parser.Workflow, doc *parser.ArazzoD
 			errors = append(errors, ValidationError{
 				Line:     step.LineNumber,
 				Column:   0,
-				Message:  fmt.Sprintf("Step '%s': Must have one of 'operationId', 'operationPath', or 'workflowId'", step.StepID),
+				Message:  fmt.Sprintf("Step '%s': Must have one of 'operationId', 'operationPath', 'channelPath', or 'workflowId'", step.StepID),
 				Severity: "error",
 			})
 		} else if actionCount > 1 {
 			errors = append(errors, ValidationError{
 				Line:     step.LineNumber,
 				Column:   0,
-				Message:  fmt.Sprintf("Step '%s': Can only have one of 'operationId', 'operationPath', or 'workflowId'", step.StepID),
+				Message:  fmt.Sprintf("Step '%s': Can only have one of 'operationId', 'operationPath', 'channelPath', or 'workflowId'", step.StepID),
+				Severity: "error",
+			})
+		}
+
+		// Validate that action is "send" or "receive" when channelPath is set
+		if step.ChannelPath != "" && step.Action != "" && step.Action != "send" && step.Action != "receive" {
+			errors = append(errors, ValidationError{
+				Line:     step.LineNumber,
+				Column:   0,
+				Message:  fmt.Sprintf("Step '%s': Invalid action '%s' (must be 'send' or 'receive')", step.StepID, step.Action),
 				Severity: "error",
 			})
 		}
@@ -260,7 +273,7 @@ func (v *Validator) validateRuntimeExpressions(step *parser.Step, workflow *pars
 			matches := runtimeExprRegex.FindAllStringSubmatch(valueStr, -1)
 			for _, match := range matches {
 				if len(match) > 1 {
-					prefix := match[1] // e.g., "steps", "inputs", "workflows"
+					prefix := match[1]    // e.g., "steps", "inputs", "workflows"
 					reference := match[2] // e.g., "step-1.outputs.id"
 
 					switch prefix {

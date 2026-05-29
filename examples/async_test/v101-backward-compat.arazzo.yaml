@@ -1,0 +1,74 @@
+# Arazzo v1.0.1 backward-compatibility test
+# This file uses the OLD v1.0.1 format.
+# Expected: no LSP errors, arazzo-yaml language activated, syntax highlighting works.
+
+arazzo: "1.0.1"
+
+info:
+  title: Petstore Order Workflow (v1.0.1 compat test)
+  version: "1.0.0"
+  description: >
+    Tests that a v1.0.1 Arazzo document still parses and validates
+    correctly after the v1.1.0 upgrade.
+
+sourceDescriptions:
+  - name: petstore
+    url: https://petstore3.swagger.io/api/v3/openapi.json
+    type: openapi
+
+workflows:
+  - workflowId: orderPet
+    summary: Order a pet and verify the order
+    description: Creates a pet order and checks the inventory
+    inputs:
+      type: object
+      properties:
+        petId:
+          type: integer
+          description: The ID of the pet to order
+      required:
+        - petId
+
+    dependsOn: []   # workflow-level dependsOn — already supported in v1.0.x
+
+    steps:
+      - stepId: checkInventory
+        description: Check that the pet is available
+        operationId: getInventory
+        successCriteria:
+          - condition: $statusCode == 200
+            type: simple
+        outputs:
+          inventoryStatus: $response.body
+
+      - stepId: placeOrder
+        description: Place an order for the pet
+        operationId: placeOrder
+        parameters:
+          - name: petId
+            in: query
+            value: $inputs.petId
+        requestBody:
+          contentType: application/json
+          payload:
+            petId: $inputs.petId
+            quantity: 1
+            status: placed
+        successCriteria:
+          - condition: $statusCode == 200
+          - condition: $response.body.status == 'placed'
+            type: simple
+        onSuccess:
+          - name: orderSuccess
+            type: end
+        onFailure:
+          - name: orderRetry
+            type: retry
+            retryAfter: 2
+            retryLimit: 3
+        outputs:
+          orderId: $response.body.id
+          orderStatus: $response.body.status
+
+    outputs:
+      finalOrderId: $steps.placeOrder.outputs.orderId

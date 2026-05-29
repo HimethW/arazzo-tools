@@ -1,0 +1,18 @@
+# Arazzo v1.1.0 — Invalid test
+# This should trigger an LSP error for missing 'info.title'.
+
+arazzo: "1.1.0"
+
+info:
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: test
+    url: ./test.yaml
+    type: openapi
+
+workflows:
+  - workflowId: testWorkflow
+    steps:
+      - stepId: testStep
+        operationId: testOp

@@ -18,7 +18,10 @@
  */
 
 export interface ArazzoDefinition {
-    arazzo: '1.0.0' | '1.0.1';
+    arazzo: '1.0.0' | '1.0.1' | '1.1.0';
+
+    // Optional URL reference to the Arazzo description itself (v1.1.0)
+    $self?: string;
 
     //Metadata about the API workflows
     info: ArazzoInfo;
@@ -46,7 +49,7 @@ export interface ArazzoInfo {
 export interface SourceDescription {
     name: string;
     url: string;
-    type: 'openapi' | 'arazzo'; //should this include any other types? need to verify
+    type?: 'openapi' | 'asyncapi' | 'arazzo'; // optional per spec §5.8.3; asyncapi added in v1.1.0
 
     // Optional headers required to fetch the source spec(auth)
     'x-headers'?: Record<string, string>;
@@ -81,7 +84,7 @@ export interface ArazzoWorkflow {
     // Data exposed after the workflow finishes.
     // Maps internal step data to external output variables.
     // Example: { "finalizedPaymentPlan": "$steps.retrieveFinalizedPaymentPlan.finalizedPaymentPlan" }
-    outputs?: Record<string, string | any>;
+    outputs?: Record<string, string | SelectorObject | any>;
 
 }
 
@@ -102,6 +105,21 @@ export interface StepObject {
 
     /** If this step calls another nested Arazzo workflow */
     workflowId?: string;
+
+    /** v1.1.0: Reference to an AsyncAPI channel (alternative to operationId/operationPath/workflowId) */
+    channelPath?: string;
+
+    /** v1.1.0: Maximum time in milliseconds the step is allowed to run */
+    timeout?: number;
+
+    /** v1.1.0: AsyncAPI correlation ID expression */
+    correlationId?: string;
+
+    /** v1.1.0: AsyncAPI message direction for channelPath steps */
+    action?: 'send' | 'receive';
+
+    /** v1.1.0: Step-level prerequisites — stepIds that must complete before this step */
+    dependsOn?: string[];
 
     /** * Parameters passed to the operation (query, path, header, cookie).
      * Example: loanTransactionId in path
@@ -130,7 +148,7 @@ export interface StepObject {
     /** * Output mapping.
      * Stores parts of the response into variables for later steps.
      */
-    outputs?: Record<string, string>;
+    outputs?: Record<string, string | SelectorObject | any>;
 }
 
 export interface SuccessActionObject {
@@ -138,6 +156,7 @@ export interface SuccessActionObject {
     type: 'goto' | 'end'; // Possible action types
     workflowId?: string; // For 'goto' actions
     stepId?: string; // For 'goto' actions
+    parameters?: (Parameter | ReusableObject)[]; // v1.1.0: parameters passed to the referenced workflow
     criteria?: Criterion[]; // Optional criteria to evaluate before action
 }
 
@@ -146,6 +165,7 @@ export interface FailureActionObject {
     type: 'goto' | 'end' | 'retry'; // Possible action types
     workflowId?: string; // For 'goto' or 'retry' actions
     stepId?: string; // For 'goto' or 'retry' actions
+    parameters?: (Parameter | ReusableObject)[]; // v1.1.0: parameters passed to the referenced workflow
     retryAfter?: number; // for 'retry' actions
     retryLimit?: number; // for 'retry' actions
     criteria?: Criterion[]; // Optional criteria to evaluate before action
@@ -159,35 +179,51 @@ export interface Criterion {
     context?: string;       //must be provided if type is specified as jsonpath
 
     //Defaults to 'simple' if not specified
-    type?: 'regex' | 'jsonpath' | 'simple' | 'xpath' | CriterionExpressionObject;
+    type?: 'regex' | 'jsonpath' | 'simple' | 'xpath' | ExpressionTypeObject;
 }
 
-export interface CriterionExpressionObject {
-    type: 'jsonpath' | 'xpath';
-    expression: 'draft-goessner-dispatch-jsonpath-00' | 'xpath-10' | 'xpath-20' | 'xpath-30';
+/** v1.1.0: Renamed from CriterionExpressionObject. Specifies the expression dialect and version. */
+export interface ExpressionTypeObject {
+    type: 'jsonpath' | 'xpath' | 'jsonpointer';
+    // jsonpath: 'draft-goessner-dispatch-jsonpath-00' | 'rfc9535'
+    // xpath:    'xpath-10' | 'xpath-20' | 'xpath-30' | 'xpath-31'
+    // jsonpointer: 'rfc6901'
+    version: 'draft-goessner-dispatch-jsonpath-00' | 'rfc9535' | 'xpath-10' | 'xpath-20' | 'xpath-30' | 'xpath-31' | 'rfc6901';
 }
 
 export interface Parameter {
     name: string;
-    in: 'header' | 'query' | 'path' | 'cookie';
+    in?: 'header' | 'query' | 'querystring' | 'path' | 'cookie'; // optional per spec §5.8.6; omitted when workflowId context; 'querystring' added v1.1.0
     //description?: string;
     //required?: boolean;
-    value: any;  //can be a runtime expression or a raw value
+    value: string | number | boolean | SelectorObject | any;  //can be a runtime expression, raw value, or Selector Object
     //schema?: JSONSchema;
 }
 
 export interface RequestBody {
     contentType?: string; // e.g., "application/json"
-    // The payload can be a raw object or a stringified JSON with injected variables.
-    payload: any;
+    // The payload can be a raw object, a stringified JSON with injected variables, or Selector Objects.
+    payload?: any; // optional per spec §5.8.14; replacements alone may be sufficient
     replacements?: PayloadReplacementObject[];
 }
 
 export interface PayloadReplacementObject {
-    // JSONPath to locate the field in the payload 
+    // JSON Pointer, XPath, or JSONPath to locate the field in the payload
     target: string;
-    // The value or runtime expression to inject
-    value: string | any;
+    // Selector type for target — optional; defaults to JSON Pointer (JSON) or XPath (XML) per spec §5.8.15
+    targetSelectorType?: string | ExpressionTypeObject;
+    // The value or runtime expression or Selector Object to inject
+    value: string | number | boolean | SelectorObject | any;
+}
+
+/** v1.1.0 §5.8.13: Fine-grained data selection from structured data using JSONPath, XPath, or JSON Pointer */
+export interface SelectorObject {
+    /** REQUIRED. Runtime expression evaluating to structured data (e.g. $response.body) */
+    context: string;
+    /** REQUIRED. Selector expression (JSONPath, XPath, or JSON Pointer) */
+    selector: string;
+    /** REQUIRED. Type of selector expression */
+    type: 'jsonpath' | 'xpath' | 'jsonpointer' | ExpressionTypeObject;
 }
 
 // Reusable Components (For complex specs)

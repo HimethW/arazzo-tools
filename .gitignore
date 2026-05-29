@@ -31,6 +31,7 @@ common/deploy/
 common/npm-cache/
 common/pnpm-store/
 common/rush/
+**/.rush/temp/
 
 # Build artifacts
 dist/

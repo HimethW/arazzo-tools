@@ -1,0 +1,176 @@
+# Arazzo v1.1.0 — AsyncAPI channelPath, action, correlationId, timeout
+# Tests the new AsyncAPI-specific step fields introduced in Phase 1.
+# Expected: no LSP errors, channelPath accepted as valid step target, new fields highlighted.
+
+arazzo: "1.1.0"
+
+$self: https://api.example.com/workflows/iot-sensor.arazzo.yaml
+
+info:
+  title: IoT Sensor Data Workflow (AsyncAPI v1.1.0 test)
+  version: "1.0.0"
+  description: >
+    Demonstrates Arazzo v1.1.0 AsyncAPI integration:
+    - channelPath to reference an AsyncAPI channel
+    - action to specify send/receive direction
+    - correlationId to correlate messages
+    - timeout for time-bounded messaging steps
+
+sourceDescriptions:
+  # An OpenAPI source for REST endpoints
+  - name: deviceApi
+    url: ./device-openapi.yaml
+    type: openapi
+
+  # v1.1.0: An AsyncAPI source description (new 'asyncapi' type)
+  - name: sensorBus
+    url: ./sensor-asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: collectSensorReading
+    summary: Collect a sensor reading and store it via REST
+    description: >
+      Sends a command to a sensor via AsyncAPI, waits for the reading response,
+      then persists the data via a REST API call.
+    inputs:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          description: Unique identifier for the IoT sensor device
+        readingType:
+          type: string
+          description: "The type of reading: temperature, humidity, pressure"
+        correlationToken:
+          type: string
+          description: Correlation token to match command and response
+      required:
+        - deviceId
+        - readingType
+        - correlationToken
+
+    steps:
+      # Step 1: Send a command to the sensor via AsyncAPI channel
+      - stepId: sendReadingCommand
+        description: Send a data-collection command to the IoT sensor
+        # v1.1.0: channelPath references an AsyncAPI channel by path
+        channelPath: sensorBus#/channels/device~1{deviceId}~1commands
+        # v1.1.0: action specifies the direction — we are SENDING a message
+        action: send
+        # v1.1.0: correlationId — runtime expression identifying the correlation field
+        correlationId: $message.payload.correlationId
+        # v1.1.0: timeout — 10 seconds to deliver the command
+        timeout: 10000
+        parameters:
+          - name: deviceId
+            in: path
+            value: $inputs.deviceId
+        requestBody:
+          contentType: application/json
+          payload:
+            command: requestReading
+            readingType: $inputs.readingType
+            correlationId: $inputs.correlationToken
+        successCriteria:
+          - condition: $statusCode == 202
+            type: simple
+        outputs:
+          commandDelivered: $response.body.accepted
+
+      # Step 2: Wait for the sensor to publish its reading
+      - stepId: receiveReading
+        description: Wait for the sensor reading to arrive on the data channel
+        # v1.1.0: channelPath for the response channel
+        channelPath: sensorBus#/channels/device~1{deviceId}~1readings
+        # v1.1.0: action = receive — we are RECEIVING a message
+        action: receive
+        # v1.1.0: correlationId to match this receive to the command we sent
+        correlationId: $message.payload.correlationId
+        # v1.1.0: timeout — wait up to 30 seconds for the sensor response
+        timeout: 30000
+        # v1.1.0: step-level dependsOn — can only receive after the command is sent
+        dependsOn:
+          - sendReadingCommand
+        parameters:
+          - name: deviceId
+            in: path
+            value: $inputs.deviceId
+        successCriteria:
+          - condition: $message.payload.correlationId == $inputs.correlationToken
+            type: simple
+          - context: $message.payload
+            condition: "$.value != null"
+            type:
+              type: jsonpath
+              version: rfc9535
+        outputs:
+          sensorValue: $message.payload.value
+          sensorUnit: $message.payload.unit
+          timestamp: $message.payload.timestamp
+
+      # Step 3: Persist the reading via REST API
+      - stepId: persistReading
+        description: Save the sensor reading to the database
+        operationId: storeReading    # back to OpenAPI for the persistence step
+        dependsOn:
+          - receiveReading
+        parameters:
+          - name: deviceId
+            in: path
+            value: $inputs.deviceId
+        requestBody:
+          contentType: application/json
+          payload:
+            deviceId: $inputs.deviceId
+            value: $steps.receiveReading.outputs.sensorValue
+            unit: $steps.receiveReading.outputs.sensorUnit
+            timestamp: $steps.receiveReading.outputs.timestamp
+            readingType: $inputs.readingType
+        successCriteria:
+          - condition: $statusCode == 201
+        timeout: 5000
+        outputs:
+          readingId: $response.body.id
+
+    outputs:
+      readingId: $steps.persistReading.outputs.readingId
+      sensorValue: $steps.receiveReading.outputs.sensorValue
+
+  # A simpler workflow demonstrating just the new fields, no complex flow
+  - workflowId: sendAlertMessage
+    summary: Send an alert message via AsyncAPI
+    description: Single-step workflow — sends an alert to a notification channel
+    inputs:
+      type: object
+      properties:
+        message:
+          type: string
+        severity:
+          type: string
+      required:
+        - message
+
+    steps:
+      - stepId: publishAlert
+        description: Publish the alert to the notification channel
+        channelPath: sensorBus#/channels/alerts
+        action: send
+        timeout: 5000
+        parameters:
+          - name: severity
+            in: querystring    # v1.1.0: querystring is a valid 'in' value
+            value: $inputs.severity
+        requestBody:
+          contentType: application/json
+          payload:
+            message: $inputs.message
+            severity: $inputs.severity
+            timestamp: $now
+        successCriteria:
+          - condition: $statusCode == 202
+        outputs:
+          alertSent: $response.body.delivered
+
+    outputs:
+      sent: $steps.publishAlert.outputs.alertSent

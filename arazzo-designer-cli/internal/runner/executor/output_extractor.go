@@ -64,6 +64,8 @@ func (oe *OutputExtractor) ExtractOutputs(step map[string]interface{}, response 
 	for outputName, outputExprRaw := range stepOutputs {
 		outputExpr, ok := outputExprRaw.(string)
 		if !ok {
+			// Non-string output definition (e.g., Selector Object) — preserve as-is
+			outputs[outputName] = outputExprRaw
 			continue
 		}
 

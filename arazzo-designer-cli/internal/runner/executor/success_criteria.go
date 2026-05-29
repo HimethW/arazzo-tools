@@ -48,7 +48,16 @@ func (sc *SuccessCriteriaChecker) CheckSuccessCriteria(step map[string]interface
 		}
 
 		condition, _ := criterion["condition"].(string)
-		criterionType, _ := criterion["type"].(string)
+		var criterionType string
+		switch t := criterion["type"].(type) {
+		case string:
+			criterionType = t
+		case map[string]interface{}:
+			// ExpressionTypeObject: extract the embedded "type" field (e.g., "jsonpath", "xpath", "jsonpointer")
+			if embedded, ok := t["type"].(string); ok {
+				criterionType = embedded
+			}
+		}
 		if criterionType == "" {
 			criterionType = "simple"
 		}

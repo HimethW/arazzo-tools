@@ -66,14 +66,14 @@
       "patterns": [
         {
           "name": "entity.name.tag.arazzo.workflow",
-          "match": "^\\s*(workflows|workflowId|summary|description|inputs|steps|outputs|parameters|dependsOn|successCriteria|onSuccess|onFailure)\\s*:",
+          "match": "^\\s*(workflows|workflowId|summary|description|inputs|steps|outputs|parameters|dependsOn|successActions|failureActions)\\s*:",
           "captures": {
             "1": { "name": "keyword.other.arazzo.workflow" }
           }
         },
         {
           "name": "entity.name.tag.arazzo.step",
-          "match": "^\\s*(stepId|operationId|operationPath|workflowId|requestBody|successCriteria|onSuccess|onFailure|outputs)\\s*:",
+          "match": "^\\s*(stepId|operationId|operationPath|channelPath|workflowId|timeout|correlationId|action|dependsOn|parameters|requestBody|successCriteria|onSuccess|onFailure|outputs)\\s*:",
           "captures": {
             "1": { "name": "keyword.other.arazzo.step" }
           }
@@ -95,7 +95,7 @@
       "patterns": [
         {
           "name": "keyword.other.arazzo",
-          "match": "\\b(type|name|in|value|target|expression|reference|condition|context|type|retryAfter|retryLimit)\\b"
+          "match": "\\b(type|name|in|value|target|version|reference|condition|context|retryAfter|retryLimit)\\b"
         }
       ]
     },
@@ -103,7 +103,7 @@
       "patterns": [
         {
           "name": "variable.other.arazzo.runtime-expression",
-          "match": "\\$(url|method|statusCode|request\\.(header|query|body|path)|response\\.(header|query|body)|inputs|steps|workflows|sourceDescriptions|components)[\\.\\w\\[\\]'\"]*",
+          "match": "\\$(self|url|method|statusCode|message|request\\.(header|query|body|path)|response\\.(header|body)|inputs|steps|workflows|sourceDescriptions|components)[\\.\\w\\[\\]'\"]*",
           "captures": {
             "0": { "name": "variable.other.arazzo.runtime" }
           }

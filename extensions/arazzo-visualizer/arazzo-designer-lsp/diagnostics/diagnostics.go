@@ -23,7 +23,7 @@ func NewDiagnosticsProvider() *DiagnosticsProvider {
 
 // ProvideDiagnostics generates diagnostics for the given content
 func (d *DiagnosticsProvider) ProvideDiagnostics(content string) []protocol.Diagnostic {
-	var diagnostics []protocol.Diagnostic
+	diagnostics := []protocol.Diagnostic{}
 
 	utils.LogDebug("DiagnosticsProvider: Parsing document (length: %d bytes)", len(content))
 
