@@ -440,6 +440,10 @@ func (s *Server) GetModel(ctx context.Context, params *GetModelParams) (interfac
 		return nil, fmt.Errorf("failed to parse Arazzo document: %w", err)
 	}
 
+	// Resolve each step's target through the source index so the client is TOLD what a step points
+	// at instead of inferring it from the Arazzo text (which cannot decide a bare operationId).
+	s.annotateStepTargets(uri, content, doc)
+
 	utils.LogInfo("GetModel returning parsed document with %d workflows", len(doc.Workflows))
 	return doc, nil
 }
