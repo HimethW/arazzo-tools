@@ -15,11 +15,9 @@ import (
 	"strings"
 )
 
-// adapterFor picks the transport for a resolved async target from its source's AsyncAPI `servers`
-// declaration. With no servers section the default adapter (in-memory) is used, keeping Phase 9/10
-// documents and tests working unchanged.
-// Transport names an adapter WITHOUT building one, so a caller can describe what a step would run
-// on (Phase 12's CLI/MCP output) without opening a connection.
+// The transports an AsyncAPI document can select. These name an adapter WITHOUT building one, so a
+// caller can report what a step would run on (the CLI/MCP workflow details) without opening a
+// connection.
 const (
 	TransportInMemory  = "in-memory"
 	TransportMQTT      = "mqtt"
@@ -32,10 +30,9 @@ const (
 // This is the ONE protocol table: adapterFor switches on its result rather than repeating the cases,
 // so a describer and a run can never disagree about what a document selects.
 func TransportForProtocol(protocol string) (string, error) {
-	if strings.TrimSpace(protocol) == "" {
+	switch normalizeProtocol(protocol) {
+	case "":
 		return TransportInMemory, nil
-	}
-	switch strings.ToLower(strings.TrimSpace(protocol)) {
 	case "ws", "wss":
 		return TransportWebSocket, nil
 	case "mqtt", "mqtts", "secure-mqtt":
@@ -48,6 +45,13 @@ func TransportForProtocol(protocol string) (string, error) {
 	}
 }
 
+// normalizeProtocol is the single reading of an AsyncAPI `servers.protocol`: trimmed and lowercased,
+// with "" meaning no server was declared. Every protocol decision goes through it so a describer and
+// a run cannot disagree over whitespace or case.
+func normalizeProtocol(protocol string) string {
+	return strings.ToLower(strings.TrimSpace(protocol))
+}
+
 // TransportForSource reports the transport an AsyncAPI source description selects, reading the same
 // first-server rule adapterFor uses. Exported so the CLI can report a step's transport without
 // constructing (and therefore connecting) an adapter.
@@ -56,6 +60,10 @@ func TransportForSource(spec map[string]interface{}) (string, error) {
 	return TransportForProtocol(protocol)
 }
 
+// adapterFor picks the transport adapter for a resolved async target from its source's AsyncAPI
+// `servers` declaration. With no servers section the default adapter (in-memory) is used, keeping
+// Phase 9/10 documents and tests working unchanged. Adapters are cached per protocol+host so every
+// step against the same broker shares one connection.
 func (se *StepExecutor) adapterFor(info *AsyncInfo) (Adapter, error) {
 	protocol, host := firstServer(toMap(se.SourceDescriptions[info.Source]))
 	transport, err := TransportForProtocol(protocol)
@@ -66,7 +74,7 @@ func (se *StepExecutor) adapterFor(info *AsyncInfo) (Adapter, error) {
 		return se.AsyncAdapter, nil
 	}
 
-	key := protocol + "://" + host
+	key := normalizeProtocol(protocol) + "://" + host
 	if a, ok := se.asyncAdapters[key]; ok {
 		return a, nil
 	}
@@ -74,13 +82,16 @@ func (se *StepExecutor) adapterFor(info *AsyncInfo) (Adapter, error) {
 	var adapter Adapter
 	switch transport {
 	case TransportWebSocket:
-		scheme := "ws"
-		if strings.EqualFold(strings.TrimSpace(protocol), "wss") {
-			scheme = "wss"
-		}
-		adapter = NewWSAdapter(scheme + "://" + host)
+		// normalizeProtocol already reduced this to exactly "ws" or "wss" - the only two protocols
+		// TransportForProtocol maps to a websocket - so it doubles as the URL scheme.
+		adapter = NewWSAdapter(normalizeProtocol(protocol) + "://" + host)
 	case TransportMQTT:
 		adapter = NewMQTTAdapter(protocol, host)
+	default:
+		// Unreachable today: TransportForProtocol returns in-memory, one of the two above, or an
+		// error. It exists so that adding a transport there without wiring it here fails loudly
+		// instead of caching a nil adapter under this key.
+		return nil, fmt.Errorf("no adapter is wired for transport %q", transport)
 	}
 
 	if se.asyncAdapters == nil {
