@@ -1230,6 +1230,24 @@ and that declaration is the contract between publisher and subscriber. Until now
 receive searched the entire message, which matches a message that merely CARRIES the same value
 somewhere unrelated — the workflow then proceeds on the wrong message and reports success.
 
+**The Arazzo spec requires this, and we were only inferring it.** Arazzo v1.1.0's Step Object describes
+`correlationId` as: *"A correlationId in AsyncAPI links a request with its response (or more broadly, to
+trace a single logical transaction across multiple asynchronous messages). Only applicable to `asyncapi`
+steps with action `receive` and **has to be in-sync with correlationId defined in the AsyncAPI
+document**."* That settles two things this section previously argued from first principles: the field is
+**receive-only** (so placing the id on a send is the author's job, and inventing a send-side
+`correlationId` would contradict the spec), and being "in-sync with the AsyncAPI document" is a stated
+requirement rather than a nicety - which is exactly what honouring `correlationId.location` delivers.
+
+**And Arazzo cannot name a message, which is why every declared location is checked.** The Step Object's
+only targeting fields are `operationId` ("an existing, resolvable operation"), `operationPath` ("a JSON
+Pointer to reference an operation"), `channelPath` ("a JSON Pointer to reference **an event channel**")
+and `workflowId`; the Request Body Object offers only `contentType` and `payload`. Nothing addresses a
+key under `channels.<x>.messages`. So when a channel carries several message kinds, a step has no way to
+say which one it means - the runtime must accept a match at ANY declared location, and on the send side
+`requestBody.contentType` is the only lever available (and no lever at all when the kinds share a
+format, as in example 04).
+
 - **The declaration is authoritative, with no fall-through.** `AsyncInfo.DeclaredCorrelationLocations()`
   reads every location the channel's messages declare, dereferencing **both** the message and the
   Correlation ID Object (each is commonly a `$ref` into `components.messages` / `components.correlationIds`
