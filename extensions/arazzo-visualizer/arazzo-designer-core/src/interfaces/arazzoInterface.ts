@@ -121,6 +121,13 @@ export interface StepObject {
     /** v1.1.0: Step-level prerequisites — stepIds that must complete before this step */
     dependsOn?: string[];
 
+    /** What this step's target RESOLVED to, supplied by the language server on `arazzo/getModel`
+     * — never written in the Arazzo document. The document alone cannot answer it: a bare
+     * `operationId` names no source, so only looking inside the declared specs says which one owns
+     * it. Absent when the server could not resolve the target (remote source, unindexed file,
+     * unknown operation), which means "unknown" rather than any particular type. */
+    stepType?: 'openapi' | 'asyncapi' | 'arazzo' | 'workflow';
+
     /** * Parameters passed to the operation (query, path, header, cookie).
      * Example: loanTransactionId in path
      */
