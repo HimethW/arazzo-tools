@@ -131,7 +131,9 @@ func describeSourceDescriptions(doc map[string]interface{}) []map[string]interfa
 // `operationId` resolves to an AsyncAPI operation is async even though it has no `channelPath`, and
 // only asking the resolver gets that right.
 func (r *ArazzoRunner) describeStepTarget(step map[string]interface{}, info map[string]interface{}) {
-	if wf, _ := step["workflowId"].(string); strings.TrimSpace(wf) != "" {
+	// The same predicate step_executor dispatches on, character for character - a describer that
+	// classified one step differently from the runner would be worse than no describer.
+	if wf, _ := step["workflowId"].(string); wf != "" {
 		info["stepType"] = "workflow"
 		return
 	}
@@ -186,8 +188,10 @@ func (r *ArazzoRunner) GetWorkflowDetails(workflowID string) map[string]interfac
 		"description": wf["description"],
 	}
 
-	// Document-level facts a v1.1.0 description needs. Omitted when absent, so a v1.0.x document
-	// describes exactly as it did before.
+	// Document-level facts a v1.1.0 description needs. Purely additive: nothing existing changes,
+	// and a key is written only when the document actually carries it - so $self appears for v1.1.0
+	// only, while arazzoVersion and sourceDescriptions report facts a v1.0.x document always had and
+	// simply was never asked for.
 	if version, _ := r.ArazzoDoc["arazzo"].(string); version != "" {
 		details["arazzoVersion"] = version
 	}
