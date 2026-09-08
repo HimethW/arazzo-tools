@@ -45,9 +45,10 @@ workflows:
           payload:
             orderId: "2"
 
+      # ...and by operationPath, so the three SENDS mirror the three receives. All three are excluded
+      # from pre-subscription regardless - a send is never warmed, whichever form names it.
       - stepId: emitThree
-        channelPath: bus#/channels/orders
-        action: send
+        operationPath: bus#/operations/publishOrder
         requestBody:
           payload:
             orderId: "3"
