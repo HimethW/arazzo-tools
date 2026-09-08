@@ -103,7 +103,77 @@ func (r *ArazzoRunner) GetWorkflow(workflowID string) map[string]interface{} {
 	return nil
 }
 
-// GetWorkflowDetails returns metadata about a workflow.
+// describeSourceDescriptions lists the document's declared sources as {name,url,type}, so a caller
+// can see at a glance whether a workflow talks to REST, event-driven, or other Arazzo documents.
+func describeSourceDescriptions(doc map[string]interface{}) []map[string]interface{} {
+	var out []map[string]interface{}
+	for _, raw := range toSlice(doc["sourceDescriptions"]) {
+		sd := toMap(raw)
+		if sd == nil {
+			continue
+		}
+		entry := map[string]interface{}{"name": sd["name"], "url": sd["url"]}
+		if t, _ := sd["type"].(string); t != "" {
+			entry["type"] = t
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// describeStepTarget adds the facts that are NOT written on the step: what kind of step it is, and —
+// for an async step — which transport would carry it and what the AsyncAPI document declares for its
+// channel.
+//
+// Everything here resolves through the SAME helpers the runtime uses (ResolveAsyncTarget,
+// TransportForSource, AsyncInfo's declarations) rather than re-deriving anything from the step text.
+// A description that disagreed with the run would be worse than no description: a step whose
+// `operationId` resolves to an AsyncAPI operation is async even though it has no `channelPath`, and
+// only asking the resolver gets that right.
+func (r *ArazzoRunner) describeStepTarget(step map[string]interface{}, info map[string]interface{}) {
+	if wf, _ := step["workflowId"].(string); strings.TrimSpace(wf) != "" {
+		info["stepType"] = "workflow"
+		return
+	}
+
+	async, isAsync := executor.ResolveAsyncTarget(r.SourceDescriptions, step)
+	if !isAsync {
+		info["stepType"] = "openapi"
+		return
+	}
+	info["stepType"] = "asyncapi"
+	if async == nil {
+		return // a channelPath that does not resolve; the step reports it properly when it runs
+	}
+
+	if async.ChannelAddress != "" {
+		info["channel"] = async.ChannelAddress
+	}
+	// The operation's action wins over the step's, exactly as resolveAsyncAction decides at runtime.
+	if async.Action != "" {
+		info["action"] = async.Action
+	}
+
+	// Which transport would carry it — or why it cannot run — without building an adapter.
+	if transport, err := executor.TransportForSource(toMap(r.SourceDescriptions[async.Source])); err != nil {
+		info["adapterError"] = err.Error()
+	} else {
+		info["adapter"] = transport
+	}
+
+	// What the AsyncAPI document declares, so the JSON fallback and the whole-message correlation
+	// scan are visible before anything runs.
+	if types := async.DeclaredContentTypes(); len(types) > 0 {
+		info["contentTypes"] = types
+	}
+	if locations := async.DeclaredCorrelationLocations(); len(locations) > 0 {
+		info["correlationIdLocations"] = locations
+	}
+}
+
+// GetWorkflowDetails returns metadata about a workflow, including everything v1.1.0 added: the
+// document's version/$self/sources, each step's async fields, and the derived facts a caller cannot
+// read off the step itself (its type, transport, and what the AsyncAPI document declares).
 func (r *ArazzoRunner) GetWorkflowDetails(workflowID string) map[string]interface{} {
 	wf := r.GetWorkflow(workflowID)
 	if wf == nil {
@@ -114,6 +184,18 @@ func (r *ArazzoRunner) GetWorkflowDetails(workflowID string) map[string]interfac
 		"workflowId":  workflowID,
 		"summary":     wf["summary"],
 		"description": wf["description"],
+	}
+
+	// Document-level facts a v1.1.0 description needs. Omitted when absent, so a v1.0.x document
+	// describes exactly as it did before.
+	if version, _ := r.ArazzoDoc["arazzo"].(string); version != "" {
+		details["arazzoVersion"] = version
+	}
+	if self, _ := r.ArazzoDoc["$self"].(string); self != "" {
+		details["self"] = self
+	}
+	if sources := describeSourceDescriptions(r.ArazzoDoc); len(sources) > 0 {
+		details["sourceDescriptions"] = sources
 	}
 
 	// Extract parameters info
@@ -141,13 +223,24 @@ func (r *ArazzoRunner) GetWorkflowDetails(workflowID string) map[string]interfac
 		if s == nil {
 			continue
 		}
-		stepList = append(stepList, map[string]interface{}{
+		info := map[string]interface{}{
 			"stepId":        s["stepId"],
 			"operationId":   s["operationId"],
 			"operationPath": s["operationPath"],
 			"workflowId":    s["workflowId"],
 			"description":   s["description"],
-		})
+		}
+		// v1.1.0 step fields, passed through only when present so a REST step is unchanged.
+		for _, key := range []string{"channelPath", "action", "correlationId", "timeout"} {
+			if v, ok := s[key]; ok && v != nil && v != "" {
+				info[key] = v
+			}
+		}
+		if deps := toSlice(s["dependsOn"]); len(deps) > 0 {
+			info["dependsOn"] = deps
+		}
+		r.describeStepTarget(s, info)
+		stepList = append(stepList, info)
 	}
 	details["steps"] = stepList
 
