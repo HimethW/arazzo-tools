@@ -366,6 +366,12 @@ func (se *StepExecutor) extractAuthHeaders() map[string]string {
 
 // createFailureResult creates a StepResult for a failed step.
 func (se *StepExecutor) createFailureResult(stepID string, step map[string]interface{}, state *models.ExecutionState, errMsg string) *models.StepResult {
+	// Say WHY, in the run log, next to the step that failed. The reason already reaches the step's
+	// state, its result and its span - but not the terminal, where the log otherwise jumps straight
+	// from the step banner to "success=false" with no explanation. Every success path logs what it
+	// did; a failure is the case where that detail matters most.
+	log.Printf("Step %s failed: %s", stepID, errMsg)
+
 	state.StepsStatus[stepID] = models.StepStatusFailure
 	state.StepsData[stepID] = map[string]interface{}{
 		"error": errMsg,
