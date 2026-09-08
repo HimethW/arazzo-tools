@@ -29,7 +29,14 @@ import (
 // the step is always treated as async even if resolution fails (nil info), so a malformed channel
 // hard-fails rather than silently being executed as HTTP.
 func (se *StepExecutor) resolveAsyncTarget(step map[string]interface{}) (*AsyncInfo, bool) {
-	finder := NewAsyncFinder(se.SourceDescriptions)
+	return ResolveAsyncTarget(se.SourceDescriptions, step)
+}
+
+// ResolveAsyncTarget is resolveAsyncTarget without a StepExecutor, so a caller that only wants to
+// DESCRIBE a step (the CLI's workflow details, Phase 12) resolves it exactly as a run would rather
+// than re-deriving "is this async?" from the presence of a channelPath.
+func ResolveAsyncTarget(sourceDescriptions map[string]interface{}, step map[string]interface{}) (*AsyncInfo, bool) {
+	finder := NewAsyncFinder(sourceDescriptions)
 	if cp, _ := step["channelPath"].(string); strings.TrimSpace(cp) != "" {
 		return finder.FindChannelByPath(cp), true
 	}
