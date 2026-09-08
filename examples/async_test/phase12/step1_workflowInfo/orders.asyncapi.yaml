@@ -1,0 +1,32 @@
+# An event-driven API on a REAL broker (mqtt). Everything a description can report about an async
+# step comes from this file: the channel ADDRESS (the broker-side topic, which differs from the
+# channel KEY), the operation's direction, the declared message contentType, and the correlationId
+# location.
+asyncapi: 3.0.0
+info:
+  title: Order Events
+  version: 1.0.0
+
+servers:
+  broker:
+    host: broker.hivemq.com:1883
+    protocol: mqtt
+
+channels:
+  orders:
+    address: arazzo/phase12/orders          # the topic on the broker - NOT the channel key "orders"
+    messages:
+      order:
+        contentType: application/json
+        correlationId:
+          location: $message.payload#/token
+
+operations:
+  publishOrder:
+    action: send
+    channel:
+      $ref: '#/channels/orders'
+  consumeOrder:
+    action: receive
+    channel:
+      $ref: '#/channels/orders'

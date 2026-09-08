@@ -1,0 +1,31 @@
+# Phase 12 / step 1 - Scenario 4: No `servers` section at all.
+#
+# WHAT IT TESTS: that "no declared server" is reported as a real, named choice - the in-memory adapter
+# - rather than as a missing value. A blank adapter field would read like a failure; `in-memory` says
+# the workflow runs in-process, with no broker and no network.
+#
+# EXPECTED (get_workflow_details, workflow `localOnly`):
+#   emit : stepType asyncapi | channel local/events | action send | adapter in-memory
+#          contentTypes ["application/json"] | NO correlationIdLocations (the document declares none)
+#
+# The missing correlationIdLocations matters: it is exactly when the runtime cannot filter on a
+# declared location and has to fall back to scanning the whole message.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 12 - in-memory fallback"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: localOnly
+    summary: Runs with no broker
+    steps:
+      - stepId: emit
+        channelPath: localBus#/channels/events
+        action: send

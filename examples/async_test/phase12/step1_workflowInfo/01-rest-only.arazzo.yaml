@@ -1,0 +1,37 @@
+# Phase 12 / step 1 - Scenario 1: A REST-ONLY document, the backwards-compatibility case.
+#
+# WHAT IT TESTS: that describing a workflow costs an OpenAPI step nothing. Every step below must come
+# back with exactly the five keys the description always had (stepId, operationId, operationPath,
+# workflowId, description) plus `stepType: openapi` - and NOT one async key: no channel, no adapter,
+# no contentTypes, no correlationIdLocations.
+#
+# EXPECTED (get_workflow_details, workflow `browse`):
+#   document : arazzoVersion "1.1.0", self "./01-rest-only.arazzo.yaml", sourceDescriptions[1] catalog/openapi
+#   listAll  : stepType openapi
+#   readOne  : stepType openapi
+#   NEITHER step has: channel, action, adapter, adapterError, contentTypes, correlationIdLocations,
+#                     channelPath, correlationId, timeout
+
+arazzo: 1.1.0
+$self: ./01-rest-only.arazzo.yaml
+
+info:
+  title: "Phase 12 - REST only"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: catalog
+    url: ./catalog.openapi.yaml
+    type: openapi
+
+workflows:
+  - workflowId: browse
+    summary: Two ordinary REST steps
+    steps:
+      - stepId: listAll
+        description: Targets an OpenAPI operation by operationId
+        operationId: getProducts
+
+      - stepId: readOne
+        description: Targets an OpenAPI operation by operationPath
+        operationPath: catalog#/paths/~1products~1{id}/get

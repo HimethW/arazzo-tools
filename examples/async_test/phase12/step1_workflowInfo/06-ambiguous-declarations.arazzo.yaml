@@ -1,0 +1,35 @@
+# Phase 12 / step 1 - Scenario 6: A channel whose messages DISAGREE.
+#
+# WHAT IT TESTS: that the description reports everything the AsyncAPI document declares rather than
+# picking one and hiding the rest. The `notices` channel carries two messages with different content
+# types and different correlation locations, so both arrays come back with TWO entries.
+#
+# Why that is worth seeing before running: the document alone cannot say which format a given step
+# will carry. Two content types means the runtime picks at send/receive time; two correlation
+# locations means a receive may match on either. Seeing both is how you notice the document is
+# ambiguous - a single value would have looked settled.
+#
+# EXPECTED (get_workflow_details, workflow `notify`):
+#   emitNotice : stepType asyncapi | channel notices | action send | adapter websocket
+#                contentTypes ["application/json", "text/plain"]                  (2 entries, sorted)
+#                correlationIdLocations ["$message.header#/traceId",
+#                                        "$message.payload#/token"]               (2 entries, sorted)
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 12 - ambiguous declarations"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: noticeBus
+    url: ./mixedformats.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: notify
+    summary: One channel, two disagreeing message declarations
+    steps:
+      - stepId: emitNotice
+        channelPath: noticeBus#/channels/notices
+        action: send

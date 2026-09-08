@@ -1,0 +1,25 @@
+# A Kafka broker. The runner has no Kafka adapter yet (a planned future phase, together with real
+# Avro/Protobuf codecs), so describing a step against this source reports WHY it cannot run - without
+# contacting anything.
+asyncapi: 3.0.0
+info:
+  title: Click Stream
+  version: 1.0.0
+
+servers:
+  cluster:
+    host: kafka.example.com:9092
+    protocol: kafka
+
+channels:
+  clicks:
+    address: click-events
+    messages:
+      click:
+        contentType: application/json
+
+operations:
+  publishClick:
+    action: send
+    channel:
+      $ref: '#/channels/clicks'

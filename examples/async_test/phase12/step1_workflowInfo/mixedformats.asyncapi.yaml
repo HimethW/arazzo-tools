@@ -1,0 +1,31 @@
+# One channel carrying TWO messages that disagree: different content types and different correlation
+# locations. The document cannot say which one a given step will carry, so a description reports both
+# rather than picking one - this is the ambiguity the runtime has to resolve at send/receive time.
+asyncapi: 3.0.0
+info:
+  title: Mixed Formats
+  version: 1.0.0
+
+servers:
+  gateway:
+    host: echo.websocket.org
+    protocol: wss
+
+channels:
+  notices:
+    address: notices
+    messages:
+      asJson:
+        contentType: application/json
+        correlationId:
+          location: $message.header#/traceId
+      asText:
+        contentType: text/plain
+        correlationId:
+          location: $message.payload#/token
+
+operations:
+  sendNotice:
+    action: send
+    channel:
+      $ref: '#/channels/notices'
