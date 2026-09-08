@@ -63,6 +63,14 @@ type Step struct {
 	OnFailure       []FailureAction        `yaml:"onFailure,omitempty" json:"onFailure,omitempty"`
 	Outputs         map[string]interface{} `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	LineNumber      int                    `yaml:"-" json:"-"` // Line number where step starts
+
+	// StepType is what this step's target RESOLVED to - "openapi", "asyncapi", "arazzo" or
+	// "workflow" - filled in by the server on arazzo/getModel, never parsed from the document.
+	// It is the answer a client cannot compute from the Arazzo file alone: a bare `operationId`
+	// names no source, so only looking inside the declared specs says which one owns it. Empty
+	// when the target could not be resolved (remote source, unindexed file, unknown operation),
+	// which a client should treat as "unknown" rather than as a type.
+	StepType string `yaml:"-" json:"stepType,omitempty"`
 }
 
 // Parameter represents a parameter for a step (or a Reusable Object referencing one)

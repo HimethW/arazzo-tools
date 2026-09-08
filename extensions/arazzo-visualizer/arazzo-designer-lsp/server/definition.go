@@ -282,6 +282,81 @@ func (s *Server) resolveStepAsyncAction(uri protocol.DocumentURI, content string
 	}
 }
 
+// resolveStepTargetType reports what a step's target actually IS - "openapi", "asyncapi", "arazzo"
+// or "workflow" - by resolving it through the same index Definition and Hover use, returning "" when
+// it cannot be resolved.
+//
+// This exists because the Arazzo file alone is not enough to answer it. A bare `operationId` names no
+// source description, so a client reading only the Arazzo document has to guess which declared source
+// owns the operation - and guesses wrong whenever a document declares more than one. Looking the
+// operation up in the indexed specs turns that guess into a fact.
+func (s *Server) resolveStepTargetType(uri protocol.DocumentURI, content string, step *parser.Step) string {
+	if step == nil {
+		return ""
+	}
+	if step.WorkflowID != "" {
+		return "workflow"
+	}
+	// channelPath addresses an AsyncAPI channel by definition (spec 4.6.4), so it needs no lookup.
+	if step.ChannelPath != "" {
+		return SourceTypeAsyncAPI
+	}
+
+	sources := s.ensureSourcesIndexed(uri, content)
+	if len(sources) == 0 {
+		return ""
+	}
+
+	var op *navigation.OperationInfo
+	var found bool
+	switch {
+	case step.OperationID != "":
+		op, found = s.lookupOperationInSources(sources, step.OperationID)
+	case step.OperationPath != "":
+		op, found = s.lookupOperationByPath(sources, step.OperationPath)
+	default:
+		return ""
+	}
+	if !found || op == nil {
+		return ""
+	}
+
+	// The operation was found in a specific FILE; the registry knows what that file turned out to
+	// be. Preferring the registry over the declared `type` keeps an untyped-but-indexed source
+	// classified correctly.
+	for _, ds := range s.sourceRegistry.get(uri) {
+		if ds.FileURI != "" && ds.FileURI == op.FileURI {
+			if t := ds.EffectiveType(); t != "" {
+				return t
+			}
+		}
+	}
+	// The registry could not name the file (not yet recorded). The operation's own shape still
+	// answers it: AsyncAPI operations carry a direction, OpenAPI operations an HTTP method.
+	switch strings.ToLower(op.Method) {
+	case "send", "receive":
+		return SourceTypeAsyncAPI
+	case "":
+		return ""
+	default:
+		return SourceTypeOpenAPI
+	}
+}
+
+// annotateStepTargets fills in Step.StepType for every step of a parsed document, so the model a
+// client fetches carries the resolution rather than making the client re-derive it.
+func (s *Server) annotateStepTargets(uri protocol.DocumentURI, content string, doc *parser.ArazzoDocument) {
+	if doc == nil {
+		return
+	}
+	for wi := range doc.Workflows {
+		for si := range doc.Workflows[wi].Steps {
+			step := &doc.Workflows[wi].Steps[si]
+			step.StepType = s.resolveStepTargetType(uri, content, step)
+		}
+	}
+}
+
 // resolveStepMessageContentType returns the content type the AsyncAPI document declares for the
 // channel a step targets, and whether that channel was resolved at all.
 //
