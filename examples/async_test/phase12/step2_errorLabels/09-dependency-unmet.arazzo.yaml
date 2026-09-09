@@ -1,0 +1,48 @@
+# Phase 12 / step 2 - Scenario 9: dependency_unmet
+#
+# WHAT IT TESTS: the step never ran at all, because a prerequisite it declared had not completed.
+# `needsLater` depends on `later`, which is defined AFTER it - and `dependsOn` is a GATE, not a
+# scheduler (spec 5.8.5.1). It does not reorder steps and it does not trigger them. So `needsLater`
+# runs first, finds its prerequisite has not succeeded, and is refused.
+#
+# EXPECTED  POST /run/blocked  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "dependency_unmet"
+#   "error":       Dependency execution failed / step 'needsLater' dependsOn 'later', which has not
+#                  completed successfully
+#
+# WHY IT IS ITS OWN CLASS: nothing about THIS step failed - it never executed, and whether it works
+# is still unknown. Every other class reports something the step did. A CI report that shows this as
+# a normal failure is misleading: the failure to chase is the prerequisite's, not this one's.
+#
+# RETRY? Not on its own. Fix the ordering, or the prerequisite.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - dependency_unmet"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: blocked
+    summary: A step gated on a prerequisite that has not run
+    steps:
+      - stepId: needsLater
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            a: 1
+        dependsOn:
+          - later
+
+      - stepId: later
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            b: 2
