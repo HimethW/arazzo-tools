@@ -427,19 +427,20 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 		// Execute the step
 		result := r.StepExecutor.ExecuteStep(step, wf, state)
 
-		// Remember the FIRST failure's class. A workflow can run to completion with a failed step
-		// (onFailure: continue), and the final result below rebuilds its message from StepsData -
-		// which stores the message but not the class. Capturing it here is the one point every step
-		// path passes through.
-		if !result.Success && firstFailureClass == "" {
-			firstFailureClass = result.ErrorClass
-		}
-
 		// Handle nested workflow
 		if result.IsNestedWorkflow && result.NextAction != nil && result.NextAction.WorkflowID != "" {
 			nestedResult := r.executeNestedWorkflow(result.NextAction.WorkflowID, step, state)
 			if nestedResult != nil {
 				result.Success = nestedResult.Status == models.WorkflowStatusWorkflowComplete
+				if !result.Success {
+					// A nested workflow that failed must fail the step that called it. Without this
+					// the parent reports workflow_complete with no error at all, because a nested
+					// step records no status of its own - so a failure one level down disappears
+					// entirely from /run and from MCP.
+					result.Error = nestedResult.Error
+					result.ErrorClass = nestedResult.ErrorClass
+					state.StepsStatus[stepID] = models.StepStatusFailure
+				}
 				// Store nested workflow outputs in state
 				if nestedResult.Outputs != nil {
 					state.StepsData[stepID] = map[string]interface{}{
@@ -448,6 +449,15 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 				}
 				result.NextAction = &models.NextAction{Type: models.ActionTypeContinue}
 			}
+		}
+
+		// Remember the FIRST failure - which step, its message and its class - together, in
+		// EXECUTION order. A workflow can run to completion with a failed step (onFailure:
+		// continue), and the final result below needs all three to describe ONE step. It sits after
+		// the nested-workflow handling above so a nested failure is captured with its own class,
+		// and because a nested step arrives here reporting Success=false either way.
+		if !result.Success && firstFailureClass == "" {
+			firstFailureClass = result.ErrorClass
 		}
 
 		// Process the next action
