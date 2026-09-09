@@ -78,8 +78,10 @@ One example per label, so the set is a complete tour of the vocabulary.
 | `09-dependency-unmet.arazzo.yaml` | `blocked` | `dependency_unmet` |
 | `10-unsupported-feature.arazzo.yaml` | `crossDoc` | `unsupported_feature` |
 | `11-success.arazzo.yaml` | `roundTrip` | *(succeeds — no error keys)* |
+| `12-nested-workflows.arazzo.yaml` | `parentFails` | `adapter_unsupported` — **the child's** class |
+| `12-nested-workflows.arazzo.yaml` | `parentSucceeds` | *(succeeds — no error keys)* |
 
-**Ten of the eleven are meant to fail.** That failure is the expected result, not a problem with your
+**Most of these are meant to fail.** That failure is the expected result, not a problem with your
 setup. Run `11` first to confirm the setup works at all.
 
 **Nothing here needs the internet.** Kafka and the dead broker fail before any connection is made or
@@ -311,6 +313,47 @@ sends them chasing a problem that is not there.
 
 No `error`, no `error_class`. Classification changed nothing for a workflow that works — which is the
 regression this example exists to catch.
+
+### 12 → a nested workflow, both ways
+
+A workflow can call another workflow. This file has two parents — one whose child fails, one whose
+child works — so run **both**.
+
+```bash
+curl -s -X POST http://localhost:8791/run/parentFails    -H 'Content-Type: application/json' -d '{}'
+```
+
+```bash
+curl -s -X POST http://localhost:8791/run/parentSucceeds -H 'Content-Type: application/json' -d '{}'
+```
+
+```json
+{ "status": "failed",
+  "error_class": "adapter_unsupported",
+  "error": "step 'callFailingChild' failed: the \"kafka\" protocol is not yet supported: ..." }
+```
+
+```json
+{ "status": "success" }
+```
+
+**What this catches.** A step that calls another workflow records no pass/fail of its own, so when
+the runner asked "did any step fail?" at the end, there was nothing to find. A child that died was
+silently ignored and the parent reported **success**:
+
+```
+child   →  error, adapter_unsupported
+parent  →  "workflow_complete", no error at all      ← wrong, and invisible
+```
+
+Nobody calling `/run` — or asking Copilot — would have known anything broke. The calling step is now
+marked failed, and the child's error **and class** are carried up. Note `error_class` is the child's
+own `adapter_unsupported`, not a vague "a nested workflow failed": what you need to know is that
+Kafka has no adapter, not that the failure happened one level down.
+
+`parentSucceeds` is the other half, and the easier one to break — the fix must not make a working
+parent look broken. Its second step also proves the parent keeps running after a successful nested
+call.
 
 ## Notes
 

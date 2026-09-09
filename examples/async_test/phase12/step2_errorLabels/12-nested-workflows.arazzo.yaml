@@ -1,0 +1,81 @@
+# Phase 12 / step 2 - Scenario 12: a NESTED workflow, failing and succeeding
+#
+# WHAT IT TESTS: that a workflow calling another workflow reports the truth in both directions. Run
+# the two parents below and compare.
+#
+# THE BUG THIS COVERS: a step that calls another workflow records no pass/fail of its own, so when
+# the runner asked "did any step fail?" at the end there was nothing to find. A child that died was
+# silently ignored and the parent reported SUCCESS:
+#
+#     child   -> error, adapter_unsupported
+#     parent  -> "workflow_complete", no error at all      <- wrong, and invisible
+#
+# Now the calling step is marked failed and the child's error AND class are carried up.
+#
+# EXPECTED  POST /run/parentFails  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "adapter_unsupported"          <- the CHILD's class, not a vague wrapper
+#   "error":       step 'callFailingChild' failed: the "kafka" protocol is not yet supported ...
+#
+# EXPECTED  POST /run/parentSucceeds  ->  HTTP 200
+#   "status":  "success"
+#   NO "error" key and NO "error_class" key - the fix must not make a working parent look broken,
+#   which is the half of this that is easy to break.
+#
+# Run BOTH. One shows the failure now surfacing; the other shows nothing else regressed.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - nested workflows"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: streamBus
+    url: ./stream.asyncapi.yaml
+    type: asyncapi
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  # ---- the failing side -------------------------------------------------------------------
+  - workflowId: parentFails
+    summary: Calls a child that cannot run
+    steps:
+      - stepId: callFailingChild
+        workflowId: failingChild
+
+  - workflowId: failingChild
+    summary: Sends to a Kafka broker the runner has no adapter for
+    steps:
+      - stepId: boom
+        channelPath: streamBus#/channels/clicks
+        action: send
+        requestBody:
+          payload:
+            clickId: "c-1"
+
+  # ---- the succeeding side ----------------------------------------------------------------
+  - workflowId: parentSucceeds
+    summary: Calls a child that works, then carries on
+    steps:
+      - stepId: callWorkingChild
+        workflowId: workingChild
+
+      - stepId: afterTheChild
+        description: Proves the parent keeps running after a successful nested call
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            marker: "parent-continued"
+
+  - workflowId: workingChild
+    summary: Sends on the in-memory bus - no broker, no network
+    steps:
+      - stepId: work
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            marker: "child-ok"
