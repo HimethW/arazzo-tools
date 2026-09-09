@@ -1541,11 +1541,12 @@ the UI direction is confirmed with the team — until then async steps render as
   belonging to an AsyncAPI document. The old derivation remains as the fallback for what the server
   cannot resolve (a remote source, an unindexed file, an operation nothing owns), and an unresolved
   step is left unannotated rather than guessed at.
-  > Not yet demonstrated by an example file: closing the gap needs a document with **2+ sources** and
-  > a bare `operationId` resolving into the **AsyncAPI** one. The Go test covers it
-  > ([steptype_test.go](arazzo-designer-lsp/server/steptype_test.go)); no example trips it, because
-  > `phase12/step1_workflowInfo/02` has a single source and `05`'s bare id resolves to the OpenAPI
-  > source, where the old fallback was right by luck.
+  > Demonstrated by [`phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml`](../../examples/async_test/phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml):
+  > its `placeOrder` and `alsoEmit` steps are written identically — a bare `operationId`, no source
+  > named — and resolve to `openapi` and `asyncapi` respectively, which is exactly the shape the old
+  > panel got wrong (2+ sources, so it fell back to `OpenAPI` for both). Open it and read *Step Type*
+  > on each. Also covered in Go by
+  > [steptype_test.go](arazzo-designer-lsp/server/steptype_test.go).
 
 ---
 
