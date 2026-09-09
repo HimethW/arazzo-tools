@@ -1860,7 +1860,7 @@ cross-cutting sweep and the single user-facing page.
 ## Known Issues / Bugs (separate from the v1.1.0 phases — fix independently)
 
 > **End-of-project cleanup batch.** Best tackled together at the very end, after Phases 1–14, in one
-> final pass: (1) the final XPath push (XPath selectors + `targetSelectorType: xpath`, see Phases 4/6), (2) the server-stop UI bug below, (3) executable `type: arazzo` source descriptions below, (4) the two remaining LSP validation blind spots below (goto target existence; $steps refs outside parameters), (5) JSON line mapping in the LSP parser below, (6) **the project-wide example sweep**, and (7) **the user-facing documentation page** — the last two moved out of Phase 12, see below.
+> final pass: (1) the final XPath push (XPath selectors + `targetSelectorType: xpath`, see Phases 4/6), (2) the server-stop UI bug below, (3) executable `type: arazzo` source descriptions below, (4) the two remaining LSP validation blind spots below (goto target existence; $steps refs outside parameters), (5) JSON line mapping in the LSP parser below, (6) **the project-wide example sweep**, (7) **the user-facing documentation page** — those two moved out of Phase 12 — (8) **a nested workflow's spans should join the parent's trace**, and (9) **an unresolvable `channelPath` channel should be flagged in the editor**. See below.
 
 ### Project-wide example sweep (was Phase 12 step 3)
 
@@ -1899,6 +1899,65 @@ Topics, with the plan sections that are their source material:
 
 The Phase 10/11 sections of this plan are ~370 lines of written material already — this is mostly
 reshaping internal notes into user-facing prose, not research.
+
+### A nested workflow's spans should join the parent's trace
+
+Running a workflow that calls another produces **two unrelated traces**, each with its own trace id
+and no parent link:
+
+```
+TRACE 8c4dc9ad                     TRACE 10501d07
+  workflow parentFails               workflow failingChild      <- parent = (none)
+    step   callFailingChild            step   boom
+```
+
+It should be one tree, the nested run sitting inside the step that called it:
+
+```
+workflow parentFails          start
+  step     callFailingChild   start
+    workflow failingChild     start
+      step     boom           start
+        message/http          start / end
+      step     boom           end
+    workflow failingChild     end
+  step     callFailingChild   end
+workflow parentFails          end
+```
+
+**Most of this already holds.** Phase 12 moved the calling step's span so it is closed *after* the
+nested run, so the step span already encloses the child's spans in TIME and in the right order — the
+sequence above is exactly what a run emits today. What is missing is only the identity: the child
+workflow mints a fresh trace id and sets no `ParentID`.
+
+The fix is to thread the calling step's trace id and span id into `executeNestedWorkflow`, and have
+the child's workflow span reuse that trace id with `ParentID` set to the calling step's span. It
+touches `ExecuteWorkflow`, which is exported, so it wants an internal variant or an explicit trace
+context rather than a signature change on the public method.
+
+**Not urgent.** Nothing is wrong today: both traces are individually correct and complete, and the
+webview does not use the tree at all (each workflow has its own graph, and spans are filtered by
+`workflow.id`). It shows up in an external trace viewer — Jaeger via `--otlp-endpoint` — where the
+nested run currently appears as a second, disconnected trace instead of part of the story.
+
+### An unresolvable `channelPath` channel is not flagged in the editor
+
+The validator checks that a `channelPath`'s **source description** exists and is `type: asyncapi`,
+but never that the **channel** it names exists inside that file. So
+
+```yaml
+channelPath: localBus#/channels/nosuchchannel
+```
+
+gets no squiggle — `localBus` is a real, correctly typed source, and the missing channel is only
+discovered when the workflow runs (as `target_unresolved`, see
+[step2_errorLabels/06](../../examples/async_test/phase12/step2_errorLabels/06-target-unresolved.arazzo.yaml)).
+
+The lookup this needs already exists: `lookupChannelInSources`
+([definition.go](arazzo-designer-lsp/server/definition.go)) powers Go-to-Definition and hover on
+`channelPath`. It is simply never wired into the validator. Catching it while typing is worth more
+than the runtime class that currently reports it, and belongs with the other LSP blind spots in
+item 4.
 
 ### BUG (HIGH PRIORITY): a reconnected MQTT client silently stops receiving
 
