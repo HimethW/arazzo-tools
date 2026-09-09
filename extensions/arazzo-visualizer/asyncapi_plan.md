@@ -1434,19 +1434,53 @@ is missing.
 
 **Additive only.** Existing keys keep their names and types; new keys are omitted when empty.
 
-#### Step 2 — MCP responses
+#### Step 2 — MCP responses — ✅ DONE
 
 **File:** [server.go](../../arazzo-designer-cli/internal/mcpserver/server.go).
 
-- `detailsTool` (~line 312) delegates to `GetWorkflowDetails`, so **it inherits Step 1 for free** —
-  verify rather than duplicate.
-- `listTool` (~line 294): add each workflow's source types so a client can tell REST-only from
-  event-driven without a second call.
-- `handleRun` (~line 375) / `handleLastResult` (~line 474): async failures currently arrive as bare
-  strings. Keep the string, and add a structured field distinguishing the classes a client would act
-  on differently: `adapter_unsupported`, `connect_failed`, `receive_timeout`, `correlation_unresolved`,
-  `serialize_failed`. The runtime already produces distinct messages for each.
-- `server_run_test.go` exists — extend it to assert the old shape is untouched.
+- `detailsTool` — **verified, no code needed.** Its handler is exactly
+  `MarshalIndent(GetWorkflowDetails(id))`, so it inherited Step 1 in full. Confirmed end-to-end
+  through a live MCP server and through Copilot against examples 02, 05 and 06.
+- `listTool` — **DROPPED, deliberately.** See below.
+- **Failure classes — shipped.** [internal/failure](../../arazzo-designer-cli/internal/failure/failure.go)
+  is the one place the vocabulary lives: `adapter_unsupported`, `connect_failed`, `receive_timeout`,
+  `correlation_unresolved`, `serialize_failed`.
+
+  The class is attached **where the failure is created**, never derived later from the message text —
+  otherwise rewording a message would silently change a class, which is the exact fragility the field
+  exists to remove. `adapter_select.go`, `adapter_ws.go`, `adapter_mqtt.go` (the connect only, since
+  `waitToken` also serves publish/subscribe) and `serializer.go` tag their own errors;
+  `async_executor.go` takes the producer's class via `failure.ClassOf(err)` rather than restating it,
+  and reads the receive timeout from the existing `ErrReceiveTimeout` **sentinel**, not from wording.
+
+  It rides on `StepResult.ErrorClass` → `WorkflowExecutionResult.ErrorClass` → `RunResponse.error_class`.
+  `createFailureResult` takes the class as a **variadic** parameter, so the ~15 call sites whose
+  failures are outside the vocabulary are untouched and correctly report no class.
+
+  Reported on all three paths a caller can see a failure through: `POST /run`, `GET /lastResult`
+  (inherits it from the cached response), and the per-workflow MCP tool — which prefixes it as
+  `Workflow failed [adapter_unsupported]: …`, because MCP reports a tool failure as a *message*, not
+  a structured body.
+
+  **HTTP status codes are untouched.** A failed workflow is still `200 OK`: the request succeeded,
+  the workflow did not. Reusing HTTP codes for domain failures was considered and rejected — they are
+  already spoken for on the transport axis, `receive_timeout` has no HTTP equivalent at all (504 means
+  an upstream did not answer a request; nothing sent one), and the MCP path has no HTTP status to use.
+  gRPC, JSON-RPC and every major API vendor keep the two axes separate for the same reason.
+- `server_run_test.go` — extended. The old shape is pinned on the **wire**, not just the struct: a
+  400 response is marshalled and checked key-by-key for the absence of `error_class` and the presence
+  of everything that was there before. All five classes are provoked from **real** failures in
+  [failure_class_test.go](../../arazzo-designer-cli/internal/runner/executor/failure_class_test.go)
+  (kafka source, an unregisterable content type, a real timeout, an unresolvable `$inputs` expression,
+  a dial to port 1), plus a test that a failure outside the vocabulary reports no class at all.
+
+> **Why `listTool` was dropped.** The stated benefit — telling REST-only from event-driven "without a
+> second call" — does not survive contact with the data. A workflow is not one source type:
+> `orderThenWait` in the step 1 examples has an OpenAPI step, an AsyncAPI step *and* a nested-workflow
+> step, so any aggregate is lossy and says only "there is some async in here somewhere". And the
+> second call is not saved: anything that picks a workflow from the list then calls
+> `get_workflow_details` anyway, because it needs the inputs and steps. Revisit only if a real client
+> needs to scan a many-workflow document without per-workflow calls.
 
 #### Step 3 — Examples
 
@@ -1497,6 +1531,21 @@ the UI direction is confirmed with the team — until then async steps render as
   renders `'running' | 'passed' | 'failed'` (running = `ThemeColors.PRIMARY`). Status colouring needs
   no work, here or in Phase 14.
 - **The properties panel** already shows Step Type, the AsyncAPI section and Depends On (Phase 8).
+- **A step's resolved type** — `arazzo/getModel` now annotates every step with `stepType`
+  (`openapi` / `asyncapi` / `arazzo` / `workflow`), resolved through the same operation index
+  Definition and Hover use ([definition.go](arazzo-designer-lsp/server/definition.go),
+  `resolveStepTargetType`), and the properties panel consumes it. **Done during Phase 12** because it
+  was a correctness bug, not a styling one: the panel derived the type from the Arazzo text alone,
+  which cannot decide a bare `operationId` — it names no source description, so with two or more
+  declared sources the panel fell through to `'OpenAPI'` and mislabelled every bare `operationId`
+  belonging to an AsyncAPI document. The old derivation remains as the fallback for what the server
+  cannot resolve (a remote source, an unindexed file, an operation nothing owns), and an unresolved
+  step is left unannotated rather than guessed at.
+  > Not yet demonstrated by an example file: closing the gap needs a document with **2+ sources** and
+  > a bare `operationId` resolving into the **AsyncAPI** one. The Go test covers it
+  > ([steptype_test.go](arazzo-designer-lsp/server/steptype_test.go)); no example trips it, because
+  > `phase12/step1_workflowInfo/02` has a single source and `05`'s bare id resolves to the OpenAPI
+  > source, where the old fallback was right by luck.
 
 ---
 
