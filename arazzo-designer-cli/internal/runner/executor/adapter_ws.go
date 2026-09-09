@@ -67,7 +67,7 @@ func (a *WSAdapter) Send(channel string, msg *Message) error {
 	_ = wc.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 	if err := wc.conn.WriteMessage(websocket.TextMessage, msg.Raw); err != nil {
 		a.dropConn(channel, wc) // stale connection; next use redials
-		return fmt.Errorf("websocket write to %s failed: %w", a.channelURL(channel), err)
+		return failure.Wrap(failure.ConnectFailed, fmt.Errorf("websocket write to %s failed: %w", a.channelURL(channel), err))
 	}
 	return nil
 }

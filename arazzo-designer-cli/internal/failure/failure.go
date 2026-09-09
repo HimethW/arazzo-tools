@@ -46,9 +46,11 @@ const (
 	// configured for it. Retrying cannot help; the document or the runner has to change.
 	AdapterUnsupported Class = "adapter_unsupported"
 
-	// ConnectFailed - the remote endpoint could not be reached: DNS, refused, TLS, or a connect that
-	// timed out. Covers a message broker and an HTTP server alike, because the situation and the
-	// advice are the same. Usually worth retrying, since it is commonly transient.
+	// ConnectFailed - the link to the remote endpoint did not work: DNS, refused, TLS, a connect that
+	// timed out, or a publish/subscribe/write that failed on an already-open connection. Covers a
+	// message broker and an HTTP server alike. The distinction between "never connected" and
+	// "connected, then the operation failed" is left to the message, because the situation and the
+	// advice are the same either way. Usually worth retrying, since it is commonly transient.
 	ConnectFailed Class = "connect_failed"
 
 	// ReceiveTimeout - the subscription was live but no matching message arrived before the step's
