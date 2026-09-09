@@ -389,8 +389,8 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 	maxIterations := len(steps) * 10 // Safety limit to prevent infinite loops
 	iterations := 0
 
-	// The class of the first step that failed, kept for the final result below.
-	firstFailureClass := ""
+	// The first step that failed, with its message and class, kept for the final result below.
+	firstFailureStep, firstFailureError, firstFailureClass := "", "", ""
 
 	for stepIndex < len(steps) && iterations < maxIterations {
 		iterations++
@@ -456,8 +456,8 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 		// continue), and the final result below needs all three to describe ONE step. It sits after
 		// the nested-workflow handling above so a nested failure is captured with its own class,
 		// and because a nested step arrives here reporting Success=false either way.
-		if !result.Success && firstFailureClass == "" {
-			firstFailureClass = result.ErrorClass
+		if !result.Success && firstFailureStep == "" {
+			firstFailureStep, firstFailureError, firstFailureClass = stepID, result.Error, result.ErrorClass
 		}
 
 		// Process the next action
@@ -582,19 +582,22 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 
 	// Determine final status — if any step failed the workflow is an error
 	finalStatus := models.WorkflowStatusWorkflowComplete
-	var finalError string
-	for sid, ss := range state.StepsStatus {
+	for _, ss := range state.StepsStatus {
 		if ss == models.StepStatusFailure {
 			finalStatus = models.WorkflowStatusError
-			if data, ok := state.StepsData[sid].(map[string]interface{}); ok {
-				if e, ok := data["error"].(string); ok && e != "" {
-					finalError = fmt.Sprintf("step '%s' failed: %s", sid, e)
-					break
-				}
-			}
-			if finalError == "" {
-				finalError = fmt.Sprintf("step '%s' failed", sid)
-			}
+			break
+		}
+	}
+
+	// The message and the class must describe the SAME step, so both come from the first failure in
+	// execution order, captured together as it happened. Scanning state.StepsStatus for them instead
+	// would pick an arbitrary failed step - it is a map, and Go randomises map iteration - so with
+	// more than one failure the reported message and class could belong to different steps.
+	finalError := ""
+	if finalStatus == models.WorkflowStatusError && firstFailureStep != "" {
+		finalError = fmt.Sprintf("step '%s' failed", firstFailureStep)
+		if firstFailureError != "" {
+			finalError = fmt.Sprintf("step '%s' failed: %s", firstFailureStep, firstFailureError)
 		}
 	}
 

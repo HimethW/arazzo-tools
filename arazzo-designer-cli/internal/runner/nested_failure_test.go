@@ -90,7 +90,70 @@ workflows:
 	if got.ErrorClass != string(failure.AdapterUnsupported) {
 		t.Errorf("parent ErrorClass = %q, want %q", got.ErrorClass, failure.AdapterUnsupported)
 	}
-	if !strings.Contains(got.Error, "callChild") {
-		t.Errorf("parent Error should name the calling step, got: %q", got.Error)
+	if !strings.Contains(got.Error, "callChild") || !strings.Contains(got.Error, "not yet supported") {
+		t.Errorf("parent Error should name the calling step and the underlying reason, got: %q", got.Error)
+	}
+}
+
+// With more than one failed step, the reported message and class must describe the SAME step -
+// the first to fail. They used to be chosen independently: the class by execution order, the
+// message by scanning state.StepsStatus, which is a map and therefore iterated in random order.
+func TestTheReportedErrorAndClassDescribeTheSameStep(t *testing.T) {
+	p := writeFlow(t, `arazzo: 1.1.0
+info:
+  title: T
+  version: "1.0.0"
+sourceDescriptions:
+  - name: kafkaBus
+    url: ./kafka.asyncapi.yaml
+    type: asyncapi
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+workflows:
+  - workflowId: twoFailures
+    steps:
+      # Fails first, with adapter_unsupported, and hands on rather than ending the workflow.
+      - stepId: firstToFail
+        channelPath: kafkaBus#/channels/events
+        action: send
+        onFailure:
+          - name: carryOn
+            type: goto
+            stepId: secondToFail
+      # Fails second, with a DIFFERENT class, then hands on so the run reaches the end.
+      - stepId: secondToFail
+        channelPath: localBus#/channels/nosuchchannel
+        action: send
+        onFailure:
+          - name: carryOn
+            type: goto
+            stepId: lastOne
+      - stepId: lastOne
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            done: true
+`)
+	r, err := NewArazzoRunner(p, &models.RuntimeParams{}, &telemetry.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run it repeatedly: the old map scan picked an arbitrary failed step, so a single pass could
+	// pass by luck. Map iteration is randomised per run, so ten passes would not.
+	for i := 0; i < 10; i++ {
+		got := r.ExecuteWorkflow("twoFailures", nil)
+		if got.Status != models.WorkflowStatusError {
+			t.Fatalf("run %d: status = %v, want error", i, got.Status)
+		}
+		if !strings.Contains(got.Error, "firstToFail") {
+			t.Fatalf("run %d: Error should name the FIRST step to fail, got: %q", i, got.Error)
+		}
+		if got.ErrorClass != string(failure.AdapterUnsupported) {
+			t.Fatalf("run %d: ErrorClass = %q, want %q - the class must belong to the same step the message names",
+				i, got.ErrorClass, failure.AdapterUnsupported)
+		}
 	}
 }
