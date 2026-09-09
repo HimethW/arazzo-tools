@@ -1,0 +1,12 @@
+# No `servers` section -> the in-process in-memory adapter. Everything here runs with no broker and
+# no network, which is what makes the timeout and correlation examples fast and reliable.
+asyncapi: 3.0.0
+info:
+  title: Local Bus
+  version: 1.0.0
+channels:
+  events:
+    address: local/events
+    messages:
+      event:
+        contentType: application/json

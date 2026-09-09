@@ -1,0 +1,16 @@
+# A Kafka broker. The runner has no Kafka adapter yet, so a step against this source fails before it
+# ever touches the network -> adapter_unsupported.
+asyncapi: 3.0.0
+info:
+  title: Click Stream
+  version: 1.0.0
+servers:
+  cluster:
+    host: kafka.example.com:9092
+    protocol: kafka
+channels:
+  clicks:
+    address: click-events
+    messages:
+      click:
+        contentType: application/json

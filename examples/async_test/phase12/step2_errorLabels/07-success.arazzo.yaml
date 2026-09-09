@@ -1,0 +1,42 @@
+# Phase 12 / step 2 - Scenario 7: a run that SUCCEEDS (the regression check)
+#
+# WHAT IT TESTS: that adding error classes changed nothing for a workflow that works. Sends and then
+# receives on the same in-memory channel - no broker, no network.
+#
+# EXPECTED  POST /run/roundTrip  ->  HTTP 200
+#   "status":  "success"
+#   "outputs": {"seen": "ok-1"}
+#   NO "error" key and NO "error_class" key.
+#
+# This is the example to run FIRST and LAST: first to confirm your setup works at all, last to
+# confirm nothing regressed. Every other example in this folder is designed to fail.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - success"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: roundTrip
+    summary: A send and a receive that both work
+    outputs:
+      seen: $steps.await.outputs.seen
+    steps:
+      - stepId: emit
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            marker: "ok-1"
+
+      - stepId: await
+        channelPath: localBus#/channels/events
+        action: receive
+        timeout: 2000
+        outputs:
+          seen: $message.payload.marker

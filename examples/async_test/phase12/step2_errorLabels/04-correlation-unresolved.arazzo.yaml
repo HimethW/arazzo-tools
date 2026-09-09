@@ -1,0 +1,41 @@
+# Phase 12 / step 2 - Scenario 4: correlation_unresolved
+#
+# WHAT IT TESTS: the step asks to match on a correlation id, and the expression it names produces
+# NOTHING. `$inputs.token` is not declared in this workflow's inputs and is not passed in, so there
+# is no id to match on.
+#
+# The runner REFUSES to quietly fall back to an unfiltered receive here. That is the interesting
+# part: silently taking the next message off the channel would look like success while consuming a
+# message meant for someone else. Failing loudly is the correct behaviour, and this class names it.
+#
+# EXPECTED  POST /run/badCorrelation  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "correlation_unresolved"
+#   "error":       receive on channel "local/events": correlationId "$inputs.token" resolved to no
+#                  value, so there is no id to match - refusing to fall back to an unfiltered receive
+#
+# RETRY? No. The expression, or the data it reads, has to change.
+#
+# TRY THIS: pass the input and the class changes. Sending {"inputs":{"token":"abc"}} makes the
+# correlation resolve, so the step gets as far as waiting - and then fails as receive_timeout
+# instead, because nothing publishes here. Two different classes from the SAME workflow.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - correlation_unresolved"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: badCorrelation
+    summary: Matches on an expression that resolves to nothing
+    steps:
+      - stepId: await
+        channelPath: localBus#/channels/events
+        action: receive
+        correlationId: $inputs.token
+        timeout: 500

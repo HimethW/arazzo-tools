@@ -1,0 +1,16 @@
+# A WebSocket broker that is guaranteed NOT to be there: nothing listens on port 1, so the dial is
+# REFUSED immediately rather than hanging. No internet needed, and no waiting -> connect_failed.
+asyncapi: 3.0.0
+info:
+  title: Dead Bus
+  version: 1.0.0
+servers:
+  gateway:
+    host: 127.0.0.1:1
+    protocol: ws
+channels:
+  orders:
+    address: orders
+    messages:
+      order:
+        contentType: application/json
