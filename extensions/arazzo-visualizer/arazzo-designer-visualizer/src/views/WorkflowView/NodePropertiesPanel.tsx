@@ -301,18 +301,13 @@ export function NodePropertiesPanel({ node, workflow, definition, traceSpans, fo
     const filteredSpans = node.type === 'stepNode'
         ? (() => {
             // Nested-workflow step: show the called workflow's own spans, which carry its
-            // status/inputs/outputs, AND the calling step's own span. The step span used to be
-            // excluded because the runner closed it before the nested workflow ran, making it an
-            // error with no message; it is now closed afterwards and carries the nested failure's
-            // reason, which is exactly what someone opens this tab to read.
+            // status, inputs and outputs. The step does nothing else, so its own span would say
+            // the same thing twice — one run should read as one entry.
             const nestedWorkflowId = (nodeData as any).workflowId as string | undefined;
             if (nestedWorkflowId) {
                 return allSpans.filter(s =>
-                    (s.arazzo_span_kind === 'workflow'
-                        && s.attributes?.['workflow.id'] === nestedWorkflowId)
-                    || (s.arazzo_span_kind === 'step'
-                        && s.attributes?.['step.id'] === node.id
-                        && (!openWorkflowId || s.attributes?.['workflow.id'] === openWorkflowId))
+                    s.arazzo_span_kind === 'workflow'
+                    && s.attributes?.['workflow.id'] === nestedWorkflowId
                 );
             }
             // Regular step: collect step spans + their HTTP children.
