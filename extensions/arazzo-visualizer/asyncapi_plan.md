@@ -1372,7 +1372,7 @@ end-to-end sample for the chosen broker.
 
 </details>
 
-### Phase 12: CLI, MCP, Documentation, And Samples — ❌ NOT STARTED (partial samples exist)
+### Phase 12: CLI, MCP, Documentation, And Samples — 🚧 IN PROGRESS (steps 1–2 done; 3–4 remain)
 
 Goal: make the feature usable and explainable. Everything the async work added is currently visible
 only to someone reading the run log — the CLI's own workflow description, the MCP responses and the
@@ -1387,7 +1387,25 @@ by anything in the Arazzo file.
 
 ---
 
-#### Step 1 — CLI workflow details
+#### Step 1 — CLI workflow details — ✅ DONE
+
+**Shipped.** `GetWorkflowDetails` now reports the document level (`arazzoVersion`, `self`,
+`sourceDescriptions`), the v1.1.0 step fields as written (`channelPath`, `action`, `correlationId`,
+`timeout`, `dependsOn`), and the derived facts (`stepType`, `channel`, `action`, `adapter` /
+`adapterError`, `contentTypes`, `correlationIdLocations`). Additive: a REST step gains only
+`stepType` and keeps every key it had, asserted key-by-key in
+[details_test.go](../../arazzo-designer-cli/internal/runner/details_test.go).
+
+To keep the description and the run from ever disagreeing, `executor` gained two exported entry
+points used by both: `TransportForProtocol` / `TransportForSource` (the ONE protocol table, which
+`adapterFor` now switches on) and `ResolveAsyncTarget` (the resolver, split out of the StepExecutor
+method). Examples and a walkthrough live in
+[examples/async_test/phase12/step1_workflowInfo/](../../examples/async_test/phase12/step1_workflowInfo/README.md).
+
+> **Only the MCP `get_workflow_details` tool calls this** — there is no CLI subcommand for it, and
+> the visualizer never touches it (the graph parses the Arazzo file itself, via `arazzo/getModel`).
+
+---
 
 **File:** [runner.go](../../arazzo-designer-cli/internal/runner/runner.go), `GetWorkflowDetails`.
 
