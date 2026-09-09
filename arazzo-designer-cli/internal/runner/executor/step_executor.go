@@ -67,6 +67,59 @@ func NewStepExecutor(
 	}
 }
 
+// emitStepEnd closes a step's span with the outcome the result carries. Shared so a nested workflow
+// call, whose span cannot be closed inside ExecuteStep, is reported exactly like every other step.
+func (se *StepExecutor) emitStepEnd(state *models.ExecutionState, stepID, spanID string, start time.Time, result *models.StepResult) {
+	dur := float64(time.Since(start).Milliseconds())
+	status := telemetry.SpanStatusOK
+	errMsg := ""
+	if !result.Success {
+		status = telemetry.SpanStatusError
+		errMsg = result.Error
+	}
+	attrs := map[string]string{
+		"step.id":     stepID,
+		"workflow.id": state.WorkflowID,
+	}
+	if result.StatusCode > 0 {
+		attrs["http.status_code"] = fmt.Sprintf("%d", result.StatusCode)
+	}
+	// Include extracted step outputs in the end span
+	if stData, ok := state.StepsData[stepID].(map[string]interface{}); ok {
+		if outs := stData["outputs"]; outs != nil {
+			if b, err := json.Marshal(outs); err == nil {
+				attrs["step.outputs"] = string(b)
+			}
+		}
+	}
+	stepEnd := time.Now()
+	se.Sink.Send(telemetry.TraceEvent{
+		Lifecycle:     telemetry.LifecycleEnd,
+		Context:       telemetry.SpanContext{TraceID: state.TraceID, SpanID: spanID},
+		ParentID:      state.WorkflowSpanID,
+		Name:          stepID,
+		Kind:          telemetry.OTelSpanKindInternal,
+		ArazzoKind:    telemetry.SpanKindStep,
+		StartTime:     start,
+		EndTime:       &stepEnd,
+		DurationMs:    &dur,
+		StatusCode:    status,
+		StatusMessage: errMsg,
+		Attributes:    attrs,
+	})
+}
+
+// EndNestedWorkflowStep closes the span ExecuteStep left open for a nested workflow call, now that
+// the nested run has finished and the step's real outcome - and, on failure, its reason - is known.
+// A no-op for every other kind of step, so the runner can call it unconditionally.
+func (se *StepExecutor) EndNestedWorkflowStep(state *models.ExecutionState, result *models.StepResult) {
+	if result == nil || result.PendingSpanID == "" {
+		return
+	}
+	se.emitStepEnd(state, result.StepID, result.PendingSpanID, result.PendingSpanStart, result)
+	result.PendingSpanID = "" // closed once, however many times this is called
+}
+
 // ExecuteStep executes a single step and returns the result.
 func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[string]interface{}, state *models.ExecutionState) *models.StepResult {
 	stepID, _ := step["stepId"].(string)
@@ -92,50 +145,18 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 
 	// Helper to emit step end span and return the result
 	endStep := func(result *models.StepResult) *models.StepResult {
-		dur := float64(time.Since(stepStart).Milliseconds())
-		status := telemetry.SpanStatusOK
-		errMsg := ""
-		if !result.Success {
-			status = telemetry.SpanStatusError
-			errMsg = result.Error
-		}
-		attrs := map[string]string{
-			"step.id":     stepID,
-			"workflow.id": state.WorkflowID,
-		}
-		if result.StatusCode > 0 {
-			attrs["http.status_code"] = fmt.Sprintf("%d", result.StatusCode)
-		}
-		// Include extracted step outputs in the end span
-		if stData, ok := state.StepsData[stepID].(map[string]interface{}); ok {
-			if outs := stData["outputs"]; outs != nil {
-				if b, err := json.Marshal(outs); err == nil {
-					attrs["step.outputs"] = string(b)
-				}
-			}
-		}
-		stepEnd := time.Now()
-		se.Sink.Send(telemetry.TraceEvent{
-			Lifecycle:     telemetry.LifecycleEnd,
-			Context:       telemetry.SpanContext{TraceID: state.TraceID, SpanID: stepSpanID},
-			ParentID:      state.WorkflowSpanID,
-			Name:          stepID,
-			Kind:          telemetry.OTelSpanKindInternal,
-			ArazzoKind:    telemetry.SpanKindStep,
-			StartTime:     stepStart,
-			EndTime:       &stepEnd,
-			DurationMs:    &dur,
-			StatusCode:    status,
-			StatusMessage: errMsg,
-			Attributes:    attrs,
-		})
+		se.emitStepEnd(state, stepID, stepSpanID, stepStart, result)
 		return result
 	}
 
 	// Check for nested workflow execution
 	if workflowID, ok := step["workflowId"].(string); ok && workflowID != "" {
 		log.Printf("Step %s is a nested workflow call to %s", stepID, workflowID)
-		return endStep(&models.StepResult{
+		// Deliberately NOT ended here. The nested workflow has not run yet - the runner runs it
+		// after this returns - so ending the span now would report an outcome nobody knows: every
+		// nested call, successful ones included, closed as an error with no reason. The runner
+		// closes it with EndNestedWorkflowStep once the nested run is in.
+		return &models.StepResult{
 			StepID:     stepID,
 			Success:    false,
 			StatusCode: 0,
@@ -144,7 +165,9 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 				WorkflowID: workflowID,
 			},
 			IsNestedWorkflow: true,
-		})
+			PendingSpanID:    stepSpanID,
+			PendingSpanStart: stepStart,
+		}
 	}
 
 	// AsyncAPI step? (a channelPath, or an operationId that resolves to an AsyncAPI operation.)

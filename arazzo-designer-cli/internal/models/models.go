@@ -2,6 +2,8 @@
 // These mirror the Python arazzo-runner's models exactly.
 package models
 
+import "time"
+
 // StepStatus represents the status of a workflow step.
 type StepStatus string
 
@@ -105,7 +107,7 @@ type WorkflowExecutionResult struct {
 	Inputs      map[string]interface{} `json:"inputs,omitempty"`
 	Error       string                 `json:"error,omitempty"`
 	// ErrorClass is the failing step's class, carried up unchanged. See StepResult.ErrorClass.
-	ErrorClass  string                 `json:"error_class,omitempty"`
+	ErrorClass string `json:"error_class,omitempty"`
 }
 
 // RuntimeParams holds runtime parameters for workflow execution.
@@ -144,19 +146,28 @@ type NextAction struct {
 
 // StepResult holds the result of executing a single step.
 type StepResult struct {
-	StepID           string                 `json:"step_id"`
-	Success          bool                   `json:"success"`
-	StatusCode       int                    `json:"status_code,omitempty"`
-	ResponseBody     interface{}            `json:"response_body,omitempty"`
-	Headers          map[string]string      `json:"headers,omitempty"`
-	Outputs          map[string]interface{} `json:"outputs,omitempty"`
-	NextAction       *NextAction            `json:"next_action,omitempty"`
-	Error            string                 `json:"error,omitempty"`
+	StepID       string                 `json:"step_id"`
+	Success      bool                   `json:"success"`
+	StatusCode   int                    `json:"status_code,omitempty"`
+	ResponseBody interface{}            `json:"response_body,omitempty"`
+	Headers      map[string]string      `json:"headers,omitempty"`
+	Outputs      map[string]interface{} `json:"outputs,omitempty"`
+	NextAction   *NextAction            `json:"next_action,omitempty"`
+	Error        string                 `json:"error,omitempty"`
 	// ErrorClass names WHY the step failed, from the internal/failure vocabulary. Empty for a
 	// failure outside that vocabulary. It sits beside Error rather than replacing it: the message
 	// is for a person, the class is for a program.
-	ErrorClass       string                 `json:"error_class,omitempty"`
-	IsNestedWorkflow bool                   `json:"is_nested_workflow,omitempty"`
+	ErrorClass       string `json:"error_class,omitempty"`
+	IsNestedWorkflow bool   `json:"is_nested_workflow,omitempty"`
+	// PendingSpanID / PendingSpanStart carry an UNFINISHED step span out of ExecuteStep. A nested
+	// workflow call cannot close its span there: the nested run happens afterwards, in the runner,
+	// so closing it early would report an outcome before it is known - which showed every nested
+	// call as a failed step in the graph, successful ones included, and with no reason attached.
+	// The runner closes it via EndNestedWorkflowStep once the real outcome is in.
+	//
+	// Telemetry plumbing, not part of the result a caller sees, hence json:"-".
+	PendingSpanID    string    `json:"-"`
+	PendingSpanStart time.Time `json:"-"`
 }
 
 // HTTPResponse represents an HTTP response from an API call.
