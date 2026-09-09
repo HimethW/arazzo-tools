@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/wso2/arazzo-designer-cli/internal/evaluator"
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 	"github.com/wso2/arazzo-designer-cli/internal/loader"
 	"github.com/wso2/arazzo-designer-cli/internal/models"
 	"github.com/wso2/arazzo-designer-cli/internal/runner/executor"
@@ -328,6 +329,7 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 			Status:     models.WorkflowStatusError,
 			WorkflowID: workflowID,
 			Error:      fmt.Sprintf("Workflow '%s' not found", workflowID),
+			ErrorClass: string(failure.TargetUnresolved),
 		}
 	}
 
@@ -339,6 +341,10 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 			Status:     models.WorkflowStatusError,
 			WorkflowID: workflowID,
 			Error:      fmt.Sprintf("Dependency execution failed: %v", err),
+			// The dependency's OWN class, carried up. A wrapper class saying only "a dependency
+			// failed" would replace the useful answer with a less useful one: what a caller needs
+			// to know is that a broker was unreachable, not that the failure happened one level in.
+			ErrorClass: string(failure.ClassOf(err)),
 		}
 	}
 
@@ -368,6 +374,7 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 			Status:     models.WorkflowStatusError,
 			WorkflowID: workflowID,
 			Error:      "Workflow has no steps",
+			ErrorClass: string(failure.DocumentInvalid),
 		}
 	}
 
@@ -381,6 +388,9 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 	retryCount := map[string]int{}
 	maxIterations := len(steps) * 10 // Safety limit to prevent infinite loops
 	iterations := 0
+
+	// The class of the first step that failed, kept for the final result below.
+	firstFailureClass := ""
 
 	for stepIndex < len(steps) && iterations < maxIterations {
 		iterations++
@@ -410,11 +420,20 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 				StepOutputs: r.collectStepOutputs(state),
 				Inputs:      inputs,
 				Error:       depErr.Error(),
+				ErrorClass:  string(failure.ClassOf(depErr)),
 			}
 		}
 
 		// Execute the step
 		result := r.StepExecutor.ExecuteStep(step, wf, state)
+
+		// Remember the FIRST failure's class. A workflow can run to completion with a failed step
+		// (onFailure: continue), and the final result below rebuilds its message from StepsData -
+		// which stores the message but not the class. Capturing it here is the one point every step
+		// path passes through.
+		if !result.Success && firstFailureClass == "" {
+			firstFailureClass = result.ErrorClass
+		}
 
 		// Handle nested workflow
 		if result.IsNestedWorkflow && result.NextAction != nil && result.NextAction.WorkflowID != "" {
@@ -584,6 +603,7 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 		StepsStatus: state.StepsStatus,
 		Inputs:      inputs,
 		Error:       finalError,
+		ErrorClass:  firstFailureClass,
 	}
 }
 
@@ -633,7 +653,11 @@ func (r *ArazzoRunner) executeDependencies(wf map[string]interface{}) (map[strin
 		log.Printf("Executing dependency workflow: %s", depID)
 		depResult := r.ExecuteWorkflow(depID, nil)
 		if depResult.Status == models.WorkflowStatusError {
-			return nil, nil, fmt.Errorf("dependency workflow '%s' failed: %s", depID, depResult.Error)
+			depErr := fmt.Errorf("dependency workflow '%s' failed: %s", depID, depResult.Error)
+			if depResult.ErrorClass != "" {
+				return nil, nil, failure.Wrap(failure.Class(depResult.ErrorClass), depErr)
+			}
+			return nil, nil, depErr
 		}
 		depOutputs[depID] = depResult.Outputs
 		depStepStatus[depID] = depResult.StepsStatus
@@ -665,11 +689,11 @@ func (r *ArazzoRunner) checkStepDependencies(step map[string]interface{}, state 
 		case strings.HasPrefix(dep, "$sourceDescriptions."):
 			// TODO(end-of-project batch): support cross-document step dependsOn once external
 			// `type: arazzo` source descriptions are executable. See asyncapi_plan.md "Known Issues".
-			return fmt.Errorf("step '%s' dependsOn '%s': cross-document step dependencies are not yet supported", stepID, dep)
+			return failure.Errorf(failure.UnsupportedFeature, "step '%s' dependsOn '%s': cross-document step dependencies are not yet supported", stepID, dep)
 		case strings.HasPrefix(dep, "$workflows."):
 			wfID, depStepID, ok := parseWorkflowsRef(dep)
 			if !ok {
-				return fmt.Errorf("step '%s' has a malformed dependsOn reference '%s'", stepID, dep)
+				return failure.Errorf(failure.DocumentInvalid, "step '%s' has a malformed dependsOn reference '%s'", stepID, dep)
 			}
 			// The workflow must have run as a dependency (its per-step statuses are recorded), AND the
 			// specific referenced step must have reached success. Checking the workflow alone is not
@@ -677,15 +701,15 @@ func (r *ArazzoRunner) checkStepDependencies(step map[string]interface{}, state 
 			// completes, in which case that step never reached success.
 			stepStatuses, ran := state.DependencyStepStatus[wfID]
 			if !ran {
-				return fmt.Errorf("step '%s' dependsOn '%s', but workflow '%s' has not run as a dependency", stepID, dep, wfID)
+				return failure.Errorf(failure.DependencyUnmet, "step '%s' dependsOn '%s', but workflow '%s' has not run as a dependency", stepID, dep, wfID)
 			}
 			if stepStatuses[depStepID] != models.StepStatusSuccess {
-				return fmt.Errorf("step '%s' dependsOn '%s', but step '%s' in workflow '%s' did not complete successfully", stepID, dep, depStepID, wfID)
+				return failure.Errorf(failure.DependencyUnmet, "step '%s' dependsOn '%s', but step '%s' in workflow '%s' did not complete successfully", stepID, dep, depStepID, wfID)
 			}
 		default:
 			// Local stepId — must have run and reached terminal success.
 			if state.StepsStatus[dep] != models.StepStatusSuccess {
-				return fmt.Errorf("step '%s' dependsOn '%s', which has not completed successfully", stepID, dep)
+				return failure.Errorf(failure.DependencyUnmet, "step '%s' dependsOn '%s', which has not completed successfully", stepID, dep)
 			}
 		}
 	}
