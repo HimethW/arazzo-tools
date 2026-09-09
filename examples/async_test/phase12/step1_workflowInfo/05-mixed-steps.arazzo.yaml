@@ -6,6 +6,9 @@
 #
 # EXPECTED (get_workflow_details, workflow `orderThenWait`):
 #   placeOrder    : stepType openapi  - and NO async keys whatsoever
+#   alsoEmit      : stepType asyncapi | channel arazzo/phase12/orders | action send | adapter mqtt
+#                   contentTypes ["application/json"]
+#                   correlationIdLocations ["$message.payload#/token"]
 #   waitForOrder  : stepType asyncapi | channel arazzo/phase12/orders | action receive | adapter mqtt
 #                   contentTypes ["application/json"]
 #                   correlationIdLocations ["$message.payload#/token"]
@@ -13,10 +16,16 @@
 #   handOff       : stepType workflow - resolved before anything else is considered, and carries
 #                   none of the async fields
 #
-# The two source descriptions are the point of the `placeOrder` step: with more than one source
-# declared, a BARE operationId cannot be attributed by reading the Arazzo file - it has to be looked
-# up. Here `placeOrder` resolves into the OpenAPI document; in example 02 the identical form resolves
-# into the AsyncAPI one instead.
+# THE PAIR TO LOOK AT: `placeOrder` and `alsoEmit` are written IDENTICALLY - a bare operationId, no
+# source description named - and resolve to DIFFERENT types. With two sources declared, the Arazzo
+# file simply does not contain the answer: `getProducts` is in the OpenAPI document and
+# `publishOrder` is in the AsyncAPI one, and the only way to tell is to look inside them.
+#
+# That is also what this file demonstrates in the IDE. Click each step in the graph and read
+# "Step Type" in the properties panel: it says OpenAPI and AsyncAPI. Before the language server
+# resolved this (it now sends `stepType` on arazzo/getModel), the panel read only the Arazzo text,
+# could not decide a bare operationId once more than one source was declared, and fell back to
+# "OpenAPI" for both - labelling `alsoEmit` wrongly.
 
 arazzo: 1.1.0
 $self: ./05-mixed-steps.arazzo.yaml
@@ -40,6 +49,10 @@ workflows:
       - stepId: placeOrder
         description: A bare operationId that resolves into the OPENAPI source
         operationId: getProducts
+
+      - stepId: alsoEmit
+        description: The SAME bare form, resolving into the ASYNCAPI source instead
+        operationId: publishOrder
 
       - stepId: waitForOrder
         description: Waits for the matching event on the order channel

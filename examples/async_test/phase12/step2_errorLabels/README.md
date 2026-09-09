@@ -65,7 +65,67 @@ at `127.0.0.1:1`, which refuses instantly; everything else runs on the in-memory
 Unlike step 1, this needs **no MCP handshake** — `/run` is a plain HTTP endpoint. One curl per
 example.
 
-### Start the server
+The IDE route is first; the by-hand terminal route follows it.
+
+### In the development environment (VS Code) — the recommended way
+
+The extension already has a one-click runner for this, and it hits the same `/run` endpoint.
+
+1. Launch the **Extension Development Host** and open one of the `.arazzo.yaml` files above.
+2. A **`▶ Try with curl`** CodeLens sits directly above each `workflowId`. Click it.
+   - If the server is not running for this file, it asks *"The Arazzo server is not currently running
+     for this file. Start it to run the workflow?"* → **Yes**. It picks a port itself; you never need
+     to know it. (First launch may raise a Windows **firewall prompt** — private networks is enough.)
+   - It opens the visualizer for that workflow first, which is normal.
+3. A terminal named **Arazzo** appears with the command **typed but not run**. Press **Enter**.
+4. Read the output. On Windows the command ends in `| Format-List`, so you get one property per line:
+
+   ```
+   status      : failed
+   error_class : adapter_unsupported
+   error       : the "kafka" protocol is not yet supported: a Kafka adapter …
+   ```
+
+   For **example 06** the `error_class` line is simply **not there** — which is the point of that
+   example. Absence, not an empty value.
+5. **`Stop Arazzo Server`** from the Command Palette when you are done.
+
+> **Edited the file?** The CodeLens changes to **`▶ Retry`** and prompts you to restart the server —
+> it serves the document as it was when it started, so an edit needs a restart.
+
+**One server serves one document**, so switching examples means letting it restart when it asks.
+
+#### Running example 04 both ways in the IDE
+
+`04` is the one worth doing twice. Its `token` input is declared but optional, so:
+
+- **Click `▶ Try with curl` and press Enter** → no token → `correlation_unresolved`
+- **Set the input, then run again** → `receive_timeout`
+
+To set it, use **Configure Inputs** in the visualizer panel for that workflow and give `token` any
+value (e.g. `abc`). Or just edit the command in the terminal before pressing Enter — change
+`'{"inputs":{}}'` to `'{"inputs":{"token":"abc"}}'`.
+
+Same workflow, two different labels. That is the clearest demonstration in the set.
+
+#### Through Copilot instead
+
+With the server running the extension writes `.vscode/mcp.json`, so Copilot can call the workflow as
+an MCP tool. Ask it to run e.g. `clickStream`. On that path the label is embedded in the message:
+
+```
+Workflow failed [adapter_unsupported]: the "kafka" protocol is not yet supported: …
+```
+
+MCP reports a tool failure as text rather than a structured body, which is why it is written inline
+there. Be aware Copilot may summarise rather than quote — for example 06, ask for the raw JSON, since
+a summary can silently drop a missing key.
+
+### Straight from a terminal
+
+Same endpoint, driven by hand.
+
+#### Start the server
 
 ```bash
 arazzo-designer-cli serve -f examples/async_test/phase12/step2_errorLabels/01-adapter-unsupported.arazzo.yaml -p 8791
@@ -75,20 +135,13 @@ arazzo-designer-cli serve -f examples/async_test/phase12/step2_errorLabels/01-ad
 > Allowing it on *private* networks is enough, and localhost keeps working even if you decline.
 > `Ctrl+C` stops it. One document per server, so restart it when you switch examples.
 
-### Run the workflow
+#### Run the workflow
 
 ```bash
 curl -s -X POST http://localhost:8791/run/clickStream -H 'Content-Type: application/json' -d '{}'
 ```
 
 That's the whole test. The response body is the thing to look at.
-
-### From VS Code instead
-
-1. Open the `.arazzo.yaml` and run **`Start Arazzo Server`** — note the port in the notification.
-2. Use the **`▶ Try with curl`** CodeLens above the workflow, or ask Copilot to run the workflow.
-   Via the MCP tool the label appears in the message itself: `Workflow failed [adapter_unsupported]: …`
-3. **`Stop Arazzo Server`** when you are done.
 
 ## What to expect
 

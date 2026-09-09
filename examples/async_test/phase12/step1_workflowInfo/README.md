@@ -33,7 +33,7 @@ have a value, so a REST step describes exactly as it always did.
 | `02-targeting-forms.arazzo.yaml` | all three ways to target a channel | `threeWays` | three differently-written steps resolve to the **same** channel, adapter and declarations |
 | `03-unsupported-protocol.arazzo.yaml` | a protocol with no adapter | `clickStream` | `adapterError` explains why it cannot run, **without contacting anything** |
 | `04-inmemory.arazzo.yaml` | no `servers` section | `localOnly` | `adapter: in-memory` — a named choice, not a blank |
-| `05-mixed-steps.arazzo.yaml` | all three step types together | `orderThenWait` | `openapi`, `asyncapi` and `workflow` side by side in one step list |
+| `05-mixed-steps.arazzo.yaml` | all three step types, and two identically-written steps resolving differently | `orderThenWait` | `openapi`, `asyncapi` and `workflow` side by side; **open this one in the IDE too** |
 | `06-ambiguous-declarations.arazzo.yaml` | a channel whose messages disagree | `notify` | **two** content types and **two** correlation locations, not one of each |
 
 Each file's header comment states its full expected output. Supporting specs: `catalog.openapi.yaml`,
@@ -152,11 +152,20 @@ message.
 | step | `stepType` | notable |
 |---|---|---|
 | `placeOrder` | `openapi` | a **bare** `operationId` in a **two-source** document, resolved to the OpenAPI one; gains no async keys |
+| `alsoEmit` | `asyncapi` | the **same bare form**, resolved to the AsyncAPI one: `channel arazzo/phase12/orders`, `action send`, `adapter mqtt` |
 | `waitForOrder` | `asyncapi` | `channel arazzo/phase12/orders`, `action receive`, `adapter mqtt`, `correlationId $inputs.token`, `timeout 5000`, `dependsOn ["placeOrder"]` |
 | `handOff` | `workflow` | `workflowId: localOnly`, and none of the async fields |
 
-`placeOrder` and example 02's `viaOperationId` are written identically — a bare `operationId` — and
-resolve to different types. That difference is only visible by looking inside the specs.
+**The pair to look at is `placeOrder` and `alsoEmit`.** They are written identically — a bare
+`operationId`, no source description named — and land on different types. With two sources declared,
+the Arazzo file does not contain the answer: `getProducts` lives in the OpenAPI document and
+`publishOrder` in the AsyncAPI one, and the only way to tell is to open them.
+
+That makes this the file to open **in the IDE**, not just through the tool. Click each step in the
+graph and read *Step Type* in the properties panel: OpenAPI, then AsyncAPI. Until recently the panel
+read only the Arazzo text, could not decide a bare `operationId` once more than one source was
+declared, and fell back to `OpenAPI` for both — labelling `alsoEmit` wrongly. The language server now
+resolves it and sends `stepType` on `arazzo/getModel`, so the panel is told rather than guessing.
 
 ### 06 — `notify` (ambiguous channel)
 

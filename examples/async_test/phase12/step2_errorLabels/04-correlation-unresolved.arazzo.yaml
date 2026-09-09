@@ -19,6 +19,10 @@
 # TRY THIS: pass the input and the class changes. Sending {"inputs":{"token":"abc"}} makes the
 # correlation resolve, so the step gets as far as waiting - and then fails as receive_timeout
 # instead, because nothing publishes here. Two different classes from the SAME workflow.
+#
+# `token` is DECLARED below but is optional and has no default, which is what makes both runs
+# reachable: leaving it out still resolves to nothing (the default case above), while declaring it
+# lets the IDE offer the field in its Configure Inputs panel so the second run is one click away.
 
 arazzo: 1.1.0
 info:
@@ -33,6 +37,11 @@ sourceDescriptions:
 workflows:
   - workflowId: badCorrelation
     summary: Matches on an expression that resolves to nothing
+    inputs:
+      type: object
+      properties:
+        token:
+          type: string
     steps:
       - stepId: await
         channelPath: localBus#/channels/events
