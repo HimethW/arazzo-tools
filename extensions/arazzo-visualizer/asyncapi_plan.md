@@ -1372,18 +1372,25 @@ end-to-end sample for the chosen broker.
 
 </details>
 
-### Phase 12: CLI, MCP, Documentation, And Samples — 🚧 IN PROGRESS (steps 1–2 done; 3–4 remain)
+### Phase 12: CLI And MCP Surfacing — ✅ DONE (examples + docs moved to the end-of-project batch)
 
-Goal: make the feature usable and explainable. Everything the async work added is currently visible
-only to someone reading the run log — the CLI's own workflow description, the MCP responses and the
-docs still describe a REST-only tool.
+Goal: make what Phases 8–11 built **visible**. Everything the async work added was reachable only by
+reading the run log — the CLI's own workflow description and the MCP responses still described a
+REST-only tool.
 
-**Read this first if you are picking the phase up:** Phases 8–11 are done and are what you are
-surfacing. The three facts that shape the work are (a) an async step can be targeted three ways
-(`channelPath`, `operationId`, `operationPath`) so nothing may assume `channelPath` is present,
-(b) direction comes from the *operation* when there is one and only otherwise from the step's
-`action`, and (c) which adapter a step runs on is decided by the AsyncAPI document's `servers`, not
-by anything in the Arazzo file.
+**What shipped:** a workflow description that reports the v1.1.0 and async facts (step 1), and a
+failure vocabulary carried beside every error message (step 2). No new runtime behaviour: nothing
+runs, fails or reports differently, and every new field is additive.
+
+**The two remaining steps moved out.** The project-wide example sweep and the user-facing
+documentation page are now in the end-of-project batch, after Phase 14 — see
+[Steps 3–4](#steps-34--examples-and-documentation--moved-to-the-end-of-project-batch) below for why.
+
+**The three facts that shaped the work**, worth keeping in mind for Phases 13–14: (a) an async step
+can be targeted three ways (`channelPath`, `operationId`, `operationPath`) so nothing may assume
+`channelPath` is present, (b) direction comes from the *operation* when there is one and only
+otherwise from the step's `action`, and (c) which adapter a step runs on is decided by the AsyncAPI
+document's `servers`, not by anything in the Arazzo file.
 
 ---
 
@@ -1517,34 +1524,36 @@ is missing.
 > `get_workflow_details` anyway, because it needs the inputs and steps. Revisit only if a real client
 > needs to scan a many-workflow document without per-workflow calls.
 
-#### Step 3 — Examples
+#### Steps 3–4 — Examples and documentation → **MOVED to the end-of-project batch**
 
-`examples/async_test/` already holds Phase 1–11 fixtures. **Extend, do not duplicate.** Missing:
-a minimal v1.1.0 **OpenAPI-only** workflow (proving v1.1.0 costs a REST user nothing), and a
-**selector-object** example set (Phase 4 has `phase4_selectors/`; check coverage before adding).
-XPath examples must wait for the deferred XPath engine.
+The phase's remaining two steps were the cross-cutting example sweep and the documentation page.
+Both are now in the [end-of-project cleanup batch](#known-issues--bugs-separate-from-the-v110-phases--fix-independently),
+because both are best written **once, at the end, against the finished system** rather than
+mid-flight:
 
-Each example carries its expected outcome in a header comment and is listed in a `README.md` — follow
-the Phase 10/11 sets, whose headers quote runtime messages verbatim. **That verbatim quoting is a
-maintenance trap:** changing a runtime message staleifies every header quoting it. Grep the examples
-for the old text whenever you change a message.
+- Every later phase changes what the examples must show and what the documentation must say. Writing
+  them now guarantees rewriting them after Phases 13–14.
+- The example headers quote runtime messages **verbatim**, so any message change staleifies them.
+  The fewer times that set is written, the fewer times it goes stale.
 
-#### Step 4 — Documentation
+Each phase still ships its own examples with it — Phase 12's own are in
+[step1_workflowInfo/](../../examples/async_test/phase12/step1_workflowInfo/README.md) and
+[step2_errorLabels/](../../examples/async_test/phase12/step2_errorLabels/README.md). What moved is
+the **project-wide** sweep and the single user-facing page.
 
-A real page, not bullet points: REST vs AsyncAPI steps; `send` vs `receive` and where direction comes
-from; channels vs operations vs topics; **broker vs adapter** (the runner implements adapters, brokers
-are external); the serializer layer and content-type resolution; correlation and why a declared
-location matters. The Phase 10/11 sections of this plan are the source material.
+#### Tests / acceptance — all met
 
-#### Tests / acceptance
-
-- Existing OpenAPI-only workflows list, describe and run **byte-identically** — this is the phase's
-  main risk, since it touches shared code paths.
-- `GetWorkflowDetails` reports the right `stepType` and adapter for all three targeting forms,
-  including an `operationId` that resolves to an AsyncAPI operation with no `channelPath`.
-- A kafka/unknown-protocol step reports its reason in details **without running**.
-- MCP output for an old workflow is unchanged; new fields appear only for async steps.
-- New examples parse, validate, and run to their documented outcome.
+- ✅ Existing OpenAPI-only workflows list, describe and run **byte-identically** — the phase's main
+  risk, since it touched shared code paths. Pinned key-by-key in `details_test.go` (a REST step gains
+  only `stepType`) and on the wire in `server_run_test.go` (a 400 response grows no `error_class`).
+- ✅ `GetWorkflowDetails` reports the right `stepType` and adapter for all three targeting forms,
+  including an `operationId` that resolves to an AsyncAPI operation with no `channelPath` — the case
+  no text-only reader can get right.
+- ✅ A kafka/unknown-protocol step reports its reason in details **without running**, character-for-
+  character identical to the error the run produces.
+- ✅ MCP output for an old workflow is unchanged; new fields appear only where they have a value.
+- ✅ Examples parse and run to their documented outcome — verified end-to-end through `handleRun`
+  for all eleven of the step-2 set, and through a live MCP server and Copilot for step 1.
 
 ### Phase 13: Visualizer UI Enhancements — ❌ NOT STARTED (⚠️ needs TEAM CONFIRMATION first)
 
@@ -1821,14 +1830,58 @@ The model/LSP work (Phases 1–2) is done, so an implementing AI should start at
 proceed 3 → 12. Phases 4 and 5 share the selector/expression service and are best done together;
 Phase 6 depends on Phase 4; Phase 7 is independent and can be parallelized with 4–6; Phases
 8–11 form the AsyncAPI runtime track and depend on 3 (resolution) + 4–5 (evaluation) + 9
-(adapter) before 10–11. Phase 12 closes out docs/samples; Phase 13 (visualizer UI, needs team
-confirmation) and Phase 14 (non-blocking async steps) are the last two — Phase 14 last of all, since
-it only becomes meaningful once Phase 11 provides a real broker to wait on.
+(adapter) before 10–11. Phase 12 surfaces all of it through the CLI and MCP; Phase 13 (visualizer UI,
+needs team confirmation) and Phase 14 (non-blocking async steps) are the last two — Phase 14 last of
+all, since it only becomes meaningful once Phase 11 provides a real broker to wait on.
+
+**The project-wide example sweep and the user-facing documentation page come after Phase 14**, in the
+end-of-project batch. They were Phase 12 steps 3–4 and moved deliberately: every later phase changes
+what they must say, and example headers quote runtime messages verbatim, so writing them mid-flight
+guarantees rewriting them. Each phase still ships its own examples with it — what moved is the
+cross-cutting sweep and the single user-facing page.
 
 ## Known Issues / Bugs (separate from the v1.1.0 phases — fix independently)
 
-> **End-of-project cleanup batch.** None of these are v1.1.0 phase work. Best tackled together at the
-> very end, after Phases 1–12, in one final pass: (1) the final XPath push (XPath selectors + `targetSelectorType: xpath`, see Phases 4/6), (2) the server-stop UI bug below, (3) executable `type: arazzo` source descriptions below, (4) the two remaining LSP validation blind spots below (goto target existence; $steps refs outside parameters), and (5) JSON line mapping in the LSP parser below.
+> **End-of-project cleanup batch.** Best tackled together at the very end, after Phases 1–14, in one
+> final pass: (1) the final XPath push (XPath selectors + `targetSelectorType: xpath`, see Phases 4/6), (2) the server-stop UI bug below, (3) executable `type: arazzo` source descriptions below, (4) the two remaining LSP validation blind spots below (goto target existence; $steps refs outside parameters), (5) JSON line mapping in the LSP parser below, (6) **the project-wide example sweep**, and (7) **the user-facing documentation page** — the last two moved out of Phase 12, see below.
+
+### Project-wide example sweep (was Phase 12 step 3)
+
+Every phase ships examples with it, so this is the **gap-filling pass**, not a rewrite. Deliberately
+last: each later phase changes what the set must show, and the headers quote runtime messages
+**verbatim** — so the fewer times the set is written, the fewer times it goes stale. When a runtime
+message changes, grep the examples for the old text.
+
+Known gaps as of Phase 12:
+
+- **A runnable v1.1.0 OpenAPI-only workflow**, proving v1.1.0 costs a REST user nothing.
+  `phase1/v110-openapi-new-fields.arazzo.yaml` looks like this but is **parse-only** — it points at
+  `https://api.example.com/openapi.yaml`, which does not resolve, so it proves parsing and nothing
+  else. A workflow that actually runs is genuinely missing.
+- **Selector objects** — `phase4_selectors/` already has 8 examples and a README. Verify coverage
+  before adding anything; the plan's original note assumed a gap that may not exist.
+- **XPath** — blocked on the deferred XPath engine (item 1 above). Do these in the same pass.
+- A **`target_unresolved` LSP diagnostic** would remove the need for one runtime example, see item 4.
+
+### User-facing documentation page (was Phase 12 step 4)
+
+A real page, not bullet points. Deliberately last, so it describes the finished system once instead
+of being rewritten after every phase.
+
+Topics, with the plan sections that are their source material:
+
+| topic | why it trips people up | source |
+|---|---|---|
+| REST vs AsyncAPI steps | how the tool decides which a step is | Phase 8 |
+| `send` vs `receive`, and where direction comes from | the **operation** wins over the step | Phase 8/9 |
+| channels vs operations vs topics | three words for adjacent things | Phase 8/11 |
+| **broker vs adapter** | the runner implements *adapters*; brokers are external systems | Phase 11 |
+| the serializer layer and content-type resolution | the step → document → `defaultContentType` → JSON chain | Phase 10 |
+| correlation, and why a declared location matters | the false positive it prevents | Phase 10 |
+| the failure vocabulary | what each `error_class` means and whether to retry | Phase 12 step 2 |
+
+The Phase 10/11 sections of this plan are ~370 lines of written material already — this is mostly
+reshaping internal notes into user-facing prose, not research.
 
 ### BUG (HIGH PRIORITY): a reconnected MQTT client silently stops receiving
 
