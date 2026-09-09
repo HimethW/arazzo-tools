@@ -59,7 +59,7 @@ func ResolveAsyncTarget(sourceDescriptions map[string]interface{}, step map[stri
 // the HTTP span has to its step.
 func (se *StepExecutor) executeAsyncStep(step map[string]interface{}, info *AsyncInfo, state *models.ExecutionState, stepID, parentSpanID string) *models.StepResult {
 	if info == nil {
-		return se.createFailureResult(stepID, step, state, "AsyncAPI target could not be resolved (channel or operation not found)")
+		return se.createFailureResult(stepID, step, state, "AsyncAPI target could not be resolved (channel or operation not found)", failure.TargetUnresolved)
 	}
 	// Pick the transport from the AsyncAPI `servers` declaration (Phase 11): ws/mqtt -> real broker
 	// adapter, no servers -> the default in-memory adapter.
@@ -68,19 +68,19 @@ func (se *StepExecutor) executeAsyncStep(step map[string]interface{}, info *Asyn
 		return se.createFailureResult(stepID, step, state, err.Error(), failure.ClassOf(err))
 	}
 	if adapter == nil {
-		return se.createFailureResult(stepID, step, state, "AsyncAPI execution requires a configured adapter for this protocol")
+		return se.createFailureResult(stepID, step, state, "AsyncAPI execution requires a configured adapter for this protocol", failure.AdapterUnsupported)
 	}
 
 	action, err := resolveAsyncAction(step, info)
 	if err != nil {
-		return se.createFailureResult(stepID, step, state, err.Error())
+		return se.createFailureResult(stepID, step, state, err.Error(), failure.ClassOf(err))
 	}
 	channel := info.ChannelAddress
 	if channel == "" {
 		channel = info.ChannelKey
 	}
 	if channel == "" {
-		return se.createFailureResult(stepID, step, state, "AsyncAPI step has no resolvable channel")
+		return se.createFailureResult(stepID, step, state, "AsyncAPI step has no resolvable channel", failure.TargetUnresolved)
 	}
 
 	switch action {
@@ -89,7 +89,7 @@ func (se *StepExecutor) executeAsyncStep(step map[string]interface{}, info *Asyn
 	case "receive":
 		return se.executeReceive(step, adapter, info, channel, state, stepID, parentSpanID)
 	default:
-		return se.createFailureResult(stepID, step, state, fmt.Sprintf("invalid AsyncAPI action %q", action))
+		return se.createFailureResult(stepID, step, state, fmt.Sprintf("invalid AsyncAPI action %q", action), failure.DocumentInvalid)
 	}
 }
 
@@ -203,10 +203,10 @@ func resolveAsyncAction(step map[string]interface{}, info *AsyncInfo) (string, e
 		return opAction, nil
 	}
 	if stepAction == "" { //if we reach here that means that a channelPath is given. if there is no action then there is an error
-		return "", fmt.Errorf("a 'channelPath' step requires 'action' (send or receive) - the message-flow direction is otherwise undefined")
+		return "", failure.Errorf(failure.DocumentInvalid, "a 'channelPath' step requires 'action' (send or receive) - the message-flow direction is otherwise undefined")
 	}
 	if stepAction != "send" && stepAction != "receive" {
-		return "", fmt.Errorf("invalid action %q (must be 'send' or 'receive')", stepAction)
+		return "", failure.Errorf(failure.DocumentInvalid, "invalid action %q (must be 'send' or 'receive')", stepAction)
 	}
 	return stepAction, nil
 }
@@ -310,14 +310,16 @@ func (se *StepExecutor) executeSend(step map[string]interface{}, adapter Adapter
 		}
 	}
 
-	failureReason := ""
+	failureReason, failureClass := "", ""
 	if !success {
 		failureReason = "sent message did not satisfy successCriteria"
+		failureClass = string(failure.CriteriaUnmet)
 	}
 
 	return &models.StepResult{
 		StepID:       stepID,
 		Success:      success,
+		ErrorClass:   failureClass,
 		ResponseBody: payload,
 		Outputs:      outputs,
 		Error:        failureReason,
@@ -510,14 +512,16 @@ func (se *StepExecutor) executeReceive(step map[string]interface{}, adapter Adap
 		}
 	}
 
-	failureReason := ""
+	failureReason, failureClass := "", ""
 	if !success {
 		failureReason = "received message did not satisfy successCriteria"
+		failureClass = string(failure.CriteriaUnmet)
 	}
 
 	return &models.StepResult{
 		StepID:       stepID,
 		Success:      success,
+		ErrorClass:   failureClass,
 		ResponseBody: payload,
 		Outputs:      outputs,
 		Error:        failureReason,
