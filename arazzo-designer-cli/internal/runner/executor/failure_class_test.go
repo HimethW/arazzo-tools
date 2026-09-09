@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/wso2/arazzo-designer-cli/internal/failure"
@@ -87,6 +88,39 @@ func TestFailureClassesReachTheStepResult(t *testing.T) {
 			},
 			want: failure.CorrelationUnresolved,
 		},
+		{
+			name: "the channel named does not exist in the document",
+			step: map[string]interface{}{
+				"stepId": "emit", "channelPath": "orderBus#/channels/nosuchchannel", "action": "send",
+			},
+			want: failure.TargetUnresolved,
+		},
+		{
+			name: "a channelPath step with no action has no direction",
+			step: map[string]interface{}{
+				"stepId": "emit", "channelPath": "orderBus#/channels/orders",
+			},
+			want: failure.DocumentInvalid,
+		},
+		{
+			name: "an action that is neither send nor receive",
+			step: map[string]interface{}{
+				"stepId": "emit", "channelPath": "orderBus#/channels/orders", "action": "sideways",
+			},
+			want: failure.DocumentInvalid,
+		},
+		{
+			name: "the send worked and successCriteria did not hold",
+			step: map[string]interface{}{
+				"stepId": "emit", "channelPath": "orderBus#/channels/orders", "action": "send",
+				"requestBody": map[string]interface{}{"payload": map[string]interface{}{"n": 1}},
+				// Nothing about the send failed; the assertion on it did.
+				"successCriteria": []interface{}{
+					map[string]interface{}{"condition": "$statusCode == 999"},
+				},
+			},
+			want: failure.CriteriaUnmet,
+		},
 	}
 
 	for _, tc := range cases {
@@ -137,21 +171,34 @@ func TestConnectFailureReachesTheStepResult(t *testing.T) {
 	}
 }
 
-// A failure OUTSIDE the vocabulary must report no class at all. Reporting a wrong-but-plausible one
-// would be worse than reporting none: a client would branch on it.
-func TestFailuresOutsideTheVocabularyCarryNoClass(t *testing.T) {
-	se := classExecutor()
-	state := models.NewExecutionState("wf", nil, nil, nil)
-
-	r := se.ExecuteStep(map[string]interface{}{
-		"stepId": "bad", "channelPath": "orderBus#/channels/nosuchchannel", "action": "send",
-	}, nil, state)
-
-	if r.Success {
-		t.Fatal("a channelPath pointing at nothing must fail")
+// Every runtime failure path is labelled now, so an EMPTY class no longer means "outside the
+// vocabulary" - it means a path was added without one. The field must still be able to say "I don't
+// know", though, or a client could never tell a real classification from a default. This pins that
+// capability at the vocabulary level, where nothing can accidentally erode it.
+func TestAnUntaggedErrorHasNoClass(t *testing.T) {
+	if got := failure.ClassOf(errors.New("something nobody classified")); got != "" {
+		t.Errorf("ClassOf(untagged) = %q, want empty", got)
 	}
-	if r.ErrorClass != "" {
-		t.Errorf("ErrorClass = %q, want empty for a failure outside the vocabulary", r.ErrorClass)
+	if got := failure.ClassOf(nil); got != "" {
+		t.Errorf("ClassOf(nil) = %q, want empty", got)
+	}
+}
+
+// The vocabulary must not grow duplicates or blanks - a repeated value would make two situations
+// indistinguishable, which is the one thing a class exists to prevent.
+func TestTheVocabularyIsWellFormed(t *testing.T) {
+	seen := map[failure.Class]bool{}
+	for _, c := range failure.All() {
+		if c == "" {
+			t.Error("All() contains an empty class")
+		}
+		if seen[c] {
+			t.Errorf("class %q is listed twice", c)
+		}
+		seen[c] = true
+	}
+	if len(seen) != len(failure.All()) {
+		t.Error("All() has duplicates")
 	}
 }
 

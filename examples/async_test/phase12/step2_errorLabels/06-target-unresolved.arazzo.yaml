@@ -1,0 +1,40 @@
+# Phase 12 / step 2 - Scenario 6: target_unresolved
+#
+# WHAT IT TESTS: the step names something that does not exist. `localBus` IS a declared source, but
+# the AsyncAPI document it points at has no channel called `nosuchchannel`. The reference is
+# well-formed; the thing it names is missing.
+#
+# EXPECTED  POST /run/brokenTarget  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "target_unresolved"
+#   "error":       AsyncAPI target could not be resolved (channel or operation not found)
+#
+# RETRY? No. Either the Arazzo file names the wrong channel, or the AsyncAPI file lost one.
+#
+# TOLD APART FROM document_invalid (example 07) BY WHERE THE FIX IS: here the Arazzo step is
+# well-formed and the referenced SPEC is missing something; there the Arazzo step itself is wrong.
+# An assistant fixing this one should open the AsyncAPI file; example 07 sends it to the step.
+#
+# NOTE: the editor does NOT flag this today. The LSP checks that a channelPath names a declared
+# source of type asyncapi, but not that the channel exists inside it - so this reaches the runtime.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - unclassified"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: brokenTarget
+    summary: Points at a channel that does not exist
+    steps:
+      - stepId: emit
+        channelPath: localBus#/channels/nosuchchannel
+        action: send
+        requestBody:
+          payload:
+            a: 1
