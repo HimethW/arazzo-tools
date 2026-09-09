@@ -451,6 +451,10 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 			}
 		}
 
+		// Close the span ExecuteStep left open for a nested workflow call, now that its outcome is
+		// known. A no-op for every other step.
+		r.StepExecutor.EndNestedWorkflowStep(state, result)
+
 		// Remember the FIRST failure - which step, its message and its class - together, in
 		// EXECUTION order. A workflow can run to completion with a failed step (onFailure:
 		// continue), and the final result below needs all three to describe ONE step. It sits after

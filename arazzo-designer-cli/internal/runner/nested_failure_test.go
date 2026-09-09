@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/wso2/arazzo-designer-cli/internal/failure"
@@ -156,4 +157,107 @@ workflows:
 				i, got.ErrorClass, failure.AdapterUnsupported)
 		}
 	}
+}
+
+// spanSink records the trace events the graph would receive.
+type spanSink struct {
+	mu sync.Mutex
+	ev []telemetry.TraceEvent
+}
+
+func (s *spanSink) Send(e telemetry.TraceEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ev = append(s.ev, e)
+}
+func (s *spanSink) Shutdown() {}
+
+// stepEnd returns the END span for one step, which is what the webview reads to colour a node and
+// to show its failure reason.
+func (s *spanSink) stepEnd(t *testing.T, stepID string) telemetry.TraceEvent {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.ev {
+		if e.ArazzoKind == telemetry.SpanKindStep && e.Lifecycle == telemetry.LifecycleEnd && e.Name == stepID {
+			return e
+		}
+	}
+	t.Fatalf("no end span for step %q", stepID)
+	return telemetry.TraceEvent{}
+}
+
+// A step that calls another workflow must report that workflow's outcome, because the step itself
+// does nothing else. Its span used to be closed inside ExecuteStep - BEFORE the nested run - so it
+// always said error with no message: a failing child gave no reason in the graph, and a succeeding
+// one still showed the node red.
+func TestNestedWorkflowStepSpanReportsTheNestedOutcome(t *testing.T) {
+	p := writeFlow(t, `arazzo: 1.1.0
+info:
+  title: T
+  version: "1.0.0"
+sourceDescriptions:
+  - name: kafkaBus
+    url: ./kafka.asyncapi.yaml
+    type: asyncapi
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+workflows:
+  - workflowId: parentFails
+    steps:
+      - stepId: callFailingChild
+        workflowId: failingChild
+  - workflowId: failingChild
+    steps:
+      - stepId: boom
+        channelPath: kafkaBus#/channels/events
+        action: send
+  - workflowId: parentSucceeds
+    steps:
+      - stepId: callWorkingChild
+        workflowId: workingChild
+  - workflowId: workingChild
+    steps:
+      - stepId: work
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            marker: ok
+`)
+
+	t.Run("a failing child gives the calling step a reason", func(t *testing.T) {
+		sink := &spanSink{}
+		r, err := NewArazzoRunner(p, &models.RuntimeParams{}, sink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.ExecuteWorkflow("parentFails", nil)
+
+		span := sink.stepEnd(t, "callFailingChild")
+		if span.StatusCode != telemetry.SpanStatusError {
+			t.Errorf("status = %v, want error", span.StatusCode)
+		}
+		if !strings.Contains(span.StatusMessage, "not yet supported") {
+			t.Errorf("the graph must show WHY the nested workflow failed, got: %q", span.StatusMessage)
+		}
+	})
+
+	t.Run("a working child does not leave the step red", func(t *testing.T) {
+		sink := &spanSink{}
+		r, err := NewArazzoRunner(p, &models.RuntimeParams{}, sink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.ExecuteWorkflow("parentSucceeds", nil)
+
+		span := sink.stepEnd(t, "callWorkingChild")
+		if span.StatusCode != telemetry.SpanStatusOK {
+			t.Errorf("status = %v, want OK - a successful nested call must not render as a failed step", span.StatusCode)
+		}
+		if span.StatusMessage != "" {
+			t.Errorf("a successful step carries no failure message, got: %q", span.StatusMessage)
+		}
+	})
 }
