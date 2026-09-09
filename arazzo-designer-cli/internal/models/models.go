@@ -104,6 +104,8 @@ type WorkflowExecutionResult struct {
 	StepsStatus map[string]StepStatus  `json:"steps_status,omitempty"`
 	Inputs      map[string]interface{} `json:"inputs,omitempty"`
 	Error       string                 `json:"error,omitempty"`
+	// ErrorClass is the failing step's class, carried up unchanged. See StepResult.ErrorClass.
+	ErrorClass  string                 `json:"error_class,omitempty"`
 }
 
 // RuntimeParams holds runtime parameters for workflow execution.
@@ -150,6 +152,10 @@ type StepResult struct {
 	Outputs          map[string]interface{} `json:"outputs,omitempty"`
 	NextAction       *NextAction            `json:"next_action,omitempty"`
 	Error            string                 `json:"error,omitempty"`
+	// ErrorClass names WHY the step failed, from the internal/failure vocabulary. Empty for a
+	// failure outside that vocabulary. It sits beside Error rather than replacing it: the message
+	// is for a person, the class is for a program.
+	ErrorClass       string                 `json:"error_class,omitempty"`
 	IsNestedWorkflow bool                   `json:"is_nested_workflow,omitempty"`
 }
 

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 	"github.com/wso2/arazzo-designer-cli/internal/httpexec"
 	"github.com/wso2/arazzo-designer-cli/internal/models"
 	"github.com/wso2/arazzo-designer-cli/internal/telemetry"
@@ -365,7 +366,10 @@ func (se *StepExecutor) extractAuthHeaders() map[string]string {
 }
 
 // createFailureResult creates a StepResult for a failed step.
-func (se *StepExecutor) createFailureResult(stepID string, step map[string]interface{}, state *models.ExecutionState, errMsg string) *models.StepResult {
+// The optional class names WHY the step failed (internal/failure). It is variadic so the many call
+// sites whose failure is outside that vocabulary stay as they are and report no class, which is the
+// honest answer for them.
+func (se *StepExecutor) createFailureResult(stepID string, step map[string]interface{}, state *models.ExecutionState, errMsg string, class ...failure.Class) *models.StepResult {
 	// Say WHY, in the run log, next to the step that failed. The reason already reaches the step's
 	// state, its result and its span - but not the terminal, where the log otherwise jumps straight
 	// from the step banner to "success=false" with no explanation. Every success path logs what it
@@ -377,10 +381,14 @@ func (se *StepExecutor) createFailureResult(stepID string, step map[string]inter
 		"error": errMsg,
 	}
 	nextAction := se.ActionHandler.DetermineNextAction(step, false, state)
-	return &models.StepResult{
+	result := &models.StepResult{
 		StepID:     stepID,
 		Success:    false,
 		Error:      errMsg,
 		NextAction: nextAction,
 	}
+	if len(class) > 0 {
+		result.ErrorClass = string(class[0])
+	}
+	return result
 }
