@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 )
 
 // The transports an AsyncAPI document can select. These name an adapter WITHOUT building one, so a
@@ -39,9 +41,9 @@ func TransportForProtocol(protocol string) (string, error) {
 		return TransportMQTT, nil
 	case "kafka", "kafka-secure":
 		// TODO(phase-future): Kafka adapter + real Avro/Protobuf serializers (see file comment).
-		return "", fmt.Errorf("the %q protocol is not yet supported: a Kafka adapter (with Avro/Protobuf schema support) is a planned future phase - supported protocols: ws, wss, mqtt, mqtts (and in-memory when no servers are declared)", protocol)
+		return "", failure.Errorf(failure.AdapterUnsupported, "the %q protocol is not yet supported: a Kafka adapter (with Avro/Protobuf schema support) is a planned future phase - supported protocols: ws, wss, mqtt, mqtts (and in-memory when no servers are declared)", protocol)
 	default:
-		return "", fmt.Errorf("unsupported AsyncAPI server protocol %q - supported: ws, wss, mqtt, mqtts (and in-memory when no servers are declared)", protocol)
+		return "", failure.Errorf(failure.AdapterUnsupported, "unsupported AsyncAPI server protocol %q - supported: ws, wss, mqtt, mqtts (and in-memory when no servers are declared)", protocol)
 	}
 }
 
