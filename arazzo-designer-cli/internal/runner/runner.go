@@ -477,7 +477,14 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 				if result.Success {
 					endWorkflow(telemetry.SpanStatusOK, "", outputs)
 				} else {
-					endWorkflow(telemetry.SpanStatusError, "step failed", outputs)
+					// Name the step AND why it failed. "step failed" on its own is what a caller
+					// reads in the logs of the step that invoked this workflow, and it says nothing
+					// the caller did not already know.
+					reason := fmt.Sprintf("step '%s' failed", stepID)
+					if result.Error != "" {
+						reason = fmt.Sprintf("step '%s' failed: %s", stepID, result.Error)
+					}
+					endWorkflow(telemetry.SpanStatusError, reason, outputs)
 				}
 				return &models.WorkflowExecutionResult{
 					Status:      status,
