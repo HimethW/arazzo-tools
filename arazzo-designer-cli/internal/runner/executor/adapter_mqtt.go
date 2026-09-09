@@ -13,6 +13,7 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 )
 
 // mqttOpTimeout bounds how long connect/subscribe/publish may block.
@@ -110,7 +111,10 @@ func (a *MQTTAdapter) ensureSubscribed(channel string) error {
 		a.client = a.newClient(a.brokerURL)
 	}
 	if !a.client.IsConnected() {
+		// Only the connect is tagged: waitToken also serves publish and subscribe, which are not
+		// "could not reach the broker" in the sense the class means.
 		if err := waitToken(a.client.Connect(), "connect to "+a.brokerURL); err != nil {
+			err = failure.Wrap(failure.ConnectFailed, err)
 			// A failed or timed-out Connect leaves the paho client in a state it cannot leave: a second
 			// Connect on the same instance returns "status can only transition to connecting from
 			// disconnected", masking whatever actually went wrong. Since pre-subscription added a first

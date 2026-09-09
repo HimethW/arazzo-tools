@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 )
 
 // wsDialTimeout / wsWriteTimeout bound how long connecting and writing may block.
@@ -100,7 +101,7 @@ func (a *WSAdapter) ensureConn(channel string) (*wsConn, error) {
 	dialer := websocket.Dialer{HandshakeTimeout: wsDialTimeout}
 	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("websocket connect to %s failed: %w", url, err)
+		return nil, failure.Wrap(failure.ConnectFailed, fmt.Errorf("websocket connect to %s failed: %w", url, err))
 	}
 	wc := &wsConn{conn: conn}
 	a.conns[channel] = wc
