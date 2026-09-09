@@ -23,26 +23,47 @@ read the code. This adds the code.
 
 The message is **unchanged**. The label sits next to it.
 
-## The five labels
+## The ten labels
 
 Defined in one place — [internal/failure/failure.go](../../../../arazzo-designer-cli/internal/failure/failure.go).
 Adding, renaming or removing one happens there and nowhere else.
 
-| label | what happened | retry? |
-|---|---|---|
-| `adapter_unsupported` | the protocol has no adapter (kafka, amqp, …) | **never** |
-| `connect_failed` | the broker could not be reached | **yes** — commonly transient |
-| `receive_timeout` | nothing arrived before the timeout | **maybe** — with a longer timeout |
-| `correlation_unresolved` | the `correlationId` expression produced no value | no — fix the document |
-| `serialize_failed` | the message could not be encoded or decoded | no — fix the document |
+**Every runtime failure the runner can produce has one.** That completeness is the point: an empty
+`error_class` no longer means "this situation has no name", it means a code path was added without
+one — which a test now catches at the line it was written.
+
+| label | what happened | retry? | example |
+|---|---|---|---|
+| `adapter_unsupported` | the protocol has no adapter (kafka, amqp, …) | **never** | 01 |
+| `connect_failed` | the remote endpoint could not be reached — broker or HTTP | **yes** — commonly transient | 02 |
+| `receive_timeout` | nothing arrived before the timeout | **maybe** — with a longer timeout | 03 |
+| `correlation_unresolved` | the `correlationId` expression produced no value | no — fix the document | 04 |
+| `serialize_failed` | the message could not be encoded or decoded | no — fix the document | 05 |
+| `target_unresolved` | points at something that does not exist | no — fix the **referenced spec** | 06 |
+| `document_invalid` | the document itself is malformed | no — fix **this file** | 07 |
+| `criteria_unmet` | it all worked and the answer was wrong | no — retrying reproduces it | 08 |
+| `dependency_unmet` | the step never ran; a prerequisite had not completed | not on its own | 09 |
+| `unsupported_feature` | valid per spec, not implemented yet | never | 10 |
 
 That retry column is the whole point. Examples 01 and 02 both look identical from the outside — a
 send that failed — and the correct response to them is opposite.
 
+Three pairs are deliberately kept apart because they send you to different places:
+
+- **06 vs 07** — `target_unresolved` sends you to the *referenced* spec; `document_invalid` sends you
+  to *this* file.
+- **07 vs 10** — `document_invalid` means you wrote it wrong; `unsupported_feature` means the file is
+  correct and the runner has not built it yet. Telling someone to "fix" a correct document sends them
+  chasing a problem that is not there.
+- **08 vs everything else** — `criteria_unmet` is a product regression; the rest are infrastructure.
+  For a CI pipeline that is the most valuable line in the table.
+
 **Labels are attached where the failure is created**, never worked out afterwards from the message
-text. That is what makes them survive rewording, and it is why example 06 exists.
+text. That is what makes them survive rewording.
 
 ## Scenarios
+
+One example per label, so the set is a complete tour of the vocabulary.
 
 | file | workflow | expected `error_class` |
 |---|---|---|
@@ -51,11 +72,15 @@ text. That is what makes them survive rewording, and it is why example 06 exists
 | `03-receive-timeout.arazzo.yaml` | `waitForever` | `receive_timeout` |
 | `04-correlation-unresolved.arazzo.yaml` | `badCorrelation` | `correlation_unresolved` |
 | `05-serialize-failed.arazzo.yaml` | `avroSend` | `serialize_failed` |
-| `06-unclassified-failure.arazzo.yaml` | `brokenTarget` | **no key at all** |
-| `07-success.arazzo.yaml` | `roundTrip` | *(succeeds — no error keys)* |
+| `06-target-unresolved.arazzo.yaml` | `brokenTarget` | `target_unresolved` |
+| `07-document-invalid.arazzo.yaml` | `noDirection` | `document_invalid` |
+| `08-criteria-unmet.arazzo.yaml` | `wrongAnswer` | `criteria_unmet` |
+| `09-dependency-unmet.arazzo.yaml` | `blocked` | `dependency_unmet` |
+| `10-unsupported-feature.arazzo.yaml` | `crossDoc` | `unsupported_feature` |
+| `11-success.arazzo.yaml` | `roundTrip` | *(succeeds — no error keys)* |
 
-**Six of the seven are meant to fail.** That failure is the expected result, not a problem with your
-setup. Run `07` first to confirm the setup works at all.
+**Ten of the eleven are meant to fail.** That failure is the expected result, not a problem with your
+setup. Run `11` first to confirm the setup works at all.
 
 **Nothing here needs the internet.** Kafka and the dead broker fail before any connection is made or
 at `127.0.0.1:1`, which refuses instantly; everything else runs on the in-memory adapter.
@@ -86,8 +111,8 @@ The extension already has a one-click runner for this, and it hits the same `/ru
    error       : the "kafka" protocol is not yet supported: a Kafka adapter …
    ```
 
-   For **example 06** the `error_class` line is simply **not there** — which is the point of that
-   example. Absence, not an empty value.
+   For **example 11** — the only one that succeeds — there is no `error` or `error_class` line at
+   all. Every other example prints one.
 5. **`Stop Arazzo Server`** from the Command Palette when you are done.
 
 > **Edited the file?** The CodeLens changes to **`▶ Retry`** and prompts you to restart the server —
@@ -118,8 +143,8 @@ Workflow failed [adapter_unsupported]: the "kafka" protocol is not yet supported
 ```
 
 MCP reports a tool failure as text rather than a structured body, which is why it is written inline
-there. Be aware Copilot may summarise rather than quote — for example 06, ask for the raw JSON, since
-a summary can silently drop a missing key.
+there. Be aware Copilot may summarise rather than quote — if you are checking an exact label, ask for
+the raw JSON.
 
 ### Straight from a terminal
 
@@ -212,20 +237,72 @@ The runner *recognises* `application/avro` — it is a deliberate stub awaiting 
 support — so selection succeeds and encoding fails. Reporting "unsupported content type" at
 selection time would have been a lie.
 
-### 06 → no label at all
+### 06 → `target_unresolved`
 
 ```json
 { "status": "failed",
+  "error_class": "target_unresolved",
   "error": "AsyncAPI target could not be resolved (channel or operation not found)" }
 ```
 
-**Check the raw JSON, not a formatted summary.** There is no `error_class` key — not empty, *absent*.
+`localBus` is a real declared source; that AsyncAPI file just has no channel called
+`nosuchchannel`. The reference is well-formed, the thing it names is missing.
 
-This is the honesty check. A wrong-but-plausible label is worse than none, because a client will act
-on it. "I don't know" has to be expressible, and absence is how it is expressed. A pretty-printer or
-an LLM summary may quietly omit a missing key, so look at the body itself.
+> The editor does **not** flag this today. The LSP checks that a `channelPath` names a declared
+> source of type `asyncapi`, but never that the channel exists inside it — so this reaches the
+> runtime. Worth fixing in the LSP; the lookup it needs already exists.
 
-### 07 → success
+### 07 → `document_invalid`
+
+```json
+{ "status": "failed",
+  "error_class": "document_invalid",
+  "error": "a 'channelPath' step requires 'action' (send or receive) - the message-flow direction is otherwise undefined" }
+```
+
+**Compare with 06.** There the channel was missing; here it exists and is perfectly reachable — the
+step just never says which way the message goes. Different file to open, hence a different label.
+
+### 08 → `criteria_unmet`
+
+```json
+{ "status": "failed",
+  "error_class": "criteria_unmet",
+  "error": "received message did not satisfy successCriteria" }
+```
+
+**Nothing technically failed.** The message was sent, it arrived, it decoded — the assertion on it
+did not hold. This is an ordinary test failure, and the most common one a CI run sees. Without its
+own label, "the API returned the wrong value" and "the broker was down" arrive looking identical, and
+a pipeline cannot separate a product regression from flaky infrastructure.
+
+### 09 → `dependency_unmet`
+
+```json
+{ "status": "failed",
+  "error_class": "dependency_unmet",
+  "error": "Dependency execution failed: … step 'needsLater' dependsOn 'later', which has not completed successfully" }
+```
+
+`dependsOn` is a **gate, not a scheduler** — it does not reorder steps and does not trigger them. So
+`needsLater`, declared first, runs first and finds its prerequisite has not succeeded.
+
+This is the only label where **the step never ran at all**. Its own correctness is still unknown, and
+the failure to chase belongs to the prerequisite. A report that shows it as a normal failure misleads.
+
+### 10 → `unsupported_feature`
+
+```json
+{ "status": "failed",
+  "error_class": "unsupported_feature",
+  "error": "step 'needsRemote' dependsOn '$sourceDescriptions.other.wf.steps.s': cross-document step dependencies are not yet supported" }
+```
+
+The document is **correct**. Cross-document `dependsOn` is valid per the spec; the runner has not
+implemented it. That is why it is not `document_invalid` — telling someone to fix a correct file
+sends them chasing a problem that is not there.
+
+### 11 → success
 
 ```json
 { "status": "success",
@@ -244,5 +321,14 @@ regression this example exists to catch.
   a *request*, and nothing sent one.
 - **`GET /lastResult/{workflowId}`** returns the cached response of the most recent run, label
   included, without executing anything again.
-- A failure outside the five is left unlabelled rather than forced into the nearest fit. Most
-  non-async failures — a missing operation, a failed success criterion — are in that group today.
+- **Every runtime failure path is labelled**, and a test enforces it by reading the source rather
+  than running it: any `createFailureResult` call or failure result literal that omits a class fails
+  the build with the file and line. A behaviour test can only cover the paths someone thought to
+  provoke; this catches a new one on the day it is written.
+- The field can still say **"I don't know"** — an empty class remains meaningful and is pinned by a
+  test — but nothing in the runtime produces one today. If you ever see one, it is a missing label,
+  not a nameless situation.
+- **Labels are additive, never renamed.** Adding a class is safe: a client ignores what it does not
+  recognise. Renaming or merging one breaks every client silently, because a comparison against the
+  old string simply stops matching and reports nothing. That is why the grouping was settled before
+  any of this shipped.
