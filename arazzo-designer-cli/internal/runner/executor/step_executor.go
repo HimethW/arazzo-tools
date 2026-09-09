@@ -158,7 +158,7 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 	opInfo := se.findOperation(step)
 	if opInfo == nil {
 		log.Printf("Could not find operation for step %s", stepID)
-		return endStep(se.createFailureResult(stepID, step, state, "Operation not found"))
+		return endStep(se.createFailureResult(stepID, step, state, "Operation not found", failure.TargetUnresolved))
 	}
 
 	// Prepare parameters
@@ -199,7 +199,8 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 	httpResp, err := se.HTTPExecutor.ExecuteRequest(method, fullURL, params, body, state.TraceID, stepSpanID)
 	if err != nil {
 		log.Printf("HTTP request failed for step %s: %v", stepID, err)
-		return endStep(se.createFailureResult(stepID, step, state, fmt.Sprintf("HTTP error: %v", err)))
+		// The REST twin of a broker that will not accept a connection - same situation, same advice.
+		return endStep(se.createFailureResult(stepID, step, state, fmt.Sprintf("HTTP error: %v", err), failure.ConnectFailed))
 	}
 
 	// Extract fields from response map
@@ -287,6 +288,14 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 		}
 	}
 
+	// The request itself worked - it was the ANSWER that was wrong. That is an ordinary assertion
+	// failure and must stay distinguishable from an infrastructure one, which is the whole point of
+	// the class: a CI run sees this far more often than a broker being down.
+	failureClass := ""
+	if !success {
+		failureClass = string(failure.CriteriaUnmet)
+	}
+
 	return endStep(&models.StepResult{
 		StepID:       stepID,
 		Success:      success,
@@ -295,6 +304,7 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 		Headers:      respHeaders,
 		Outputs:      outputs,
 		Error:        failureReason,
+		ErrorClass:   failureClass,
 		NextAction:   nextAction,
 	})
 }
@@ -380,15 +390,16 @@ func (se *StepExecutor) createFailureResult(stepID string, step map[string]inter
 	state.StepsData[stepID] = map[string]interface{}{
 		"error": errMsg,
 	}
+	failureClass := ""
+	if len(class) > 0 {
+		failureClass = string(class[0])
+	}
 	nextAction := se.ActionHandler.DetermineNextAction(step, false, state)
-	result := &models.StepResult{
+	return &models.StepResult{
 		StepID:     stepID,
 		Success:    false,
 		Error:      errMsg,
+		ErrorClass: failureClass,
 		NextAction: nextAction,
 	}
-	if len(class) > 0 {
-		result.ErrorClass = string(class[0])
-	}
-	return result
 }
