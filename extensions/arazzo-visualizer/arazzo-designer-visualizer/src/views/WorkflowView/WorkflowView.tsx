@@ -256,8 +256,6 @@ export function WorkflowView(props: WorkflowViewProps) {
     const prevStepRef = useRef<string>('virtual_start');
     // Tracks the workflow ID of the currently running trace.
     const activeTraceWorkflowIdRef = useRef<string | undefined>(undefined);
-    // Defer resolution of nested workflow steps (Go emits early ERROR spans for them).
-    const pendingNestedStepRef = useRef<{ stepId: string; nestedWorkflowId: string; prevStepId: string } | undefined>(undefined);
     // Tracks the effective ID of the workflow currently displayed. Kept as a ref so
     // trace handler closures (which accumulate across renders) always read the latest value.
     const effectiveWorkflowIdRef = useRef<string | undefined>(workflowId);
@@ -348,16 +346,14 @@ export function WorkflowView(props: WorkflowViewProps) {
                 const prevId = prevStepRef.current;
 
                 setNodes(prev => {
-                    // Defer nested workflow step resolution (Go emits early ERROR spans).
-                    const stepNode = prev.find(n => n.id === stepId && n.type === 'stepNode');
-                    if (state === 'failed' && stepNode && (stepNode.data as any).workflowId) {
-                        pendingNestedStepRef.current = {
-                            stepId,
-                            nestedWorkflowId: (stepNode.data as any).workflowId,
-                            prevStepId: prevId,
-                        };
-                        return prev;
-                    }
+                    // A step calling a nested workflow needs no special case any more. The runner
+                    // used to close that step's span BEFORE running the nested workflow, so it
+                    // always arrived as an error with no reason — which is why this used to defer
+                    // the event and wait for the nested workflow's own end instead. The span is now
+                    // closed after the nested run, carrying its real outcome and message, so the
+                    // ordinary path below handles it. (Deferring here would now hang: the nested
+                    // workflow's end arrives FIRST, so nothing would ever resolve the deferral and
+                    // the node would sit on 'running' forever.)
 
                     // Update node status
                     const updated = prev.map(node => {
@@ -442,48 +438,9 @@ export function WorkflowView(props: WorkflowViewProps) {
                 prevStepRef.current = stepId;
             }
         } else if (event.arazzo_span_kind === 'workflow' && event.lifecycle === 'end') {
-            const pending = pendingNestedStepRef.current;
-            if (pending && event.attributes?.['workflow.id'] === pending.nestedWorkflowId) {
-                pendingNestedStepRef.current = undefined;
-                activeTraceWorkflowIdRef.current = effectiveWorkflowIdRef.current; // Resume parent tracking
-
-                const nestedState = event.status_code === 'STATUS_CODE_OK' ? 'passed' : 'failed';
-                const { stepId, prevStepId } = pending;
-
-                setNodes(prev => {
-                    const updated = prev.map(node => {
-                        if (node.id === stepId && node.type === 'stepNode') {
-                            const traceStatus: StepTraceStatus = { state: nestedState, durationMs: event.duration_ms };
-                            return { ...node, data: { ...node.data, traceStatus } };
-                        }
-                        return node;
-                    });
-
-                    setEdges(prevEdges => {
-                        const newEdges = [...prevEdges];
-                        const path = findTracePath(prevStepId, stepId, newEdges, updated);
-                        if (path) {
-                            const highlightSet = new Set(path.edgeIds);
-                            for (let i = 0; i < newEdges.length; i++) {
-                                if (highlightSet.has(newEdges[i].id)) {
-                                    newEdges[i] = { ...newEdges[i], zIndex: 10, data: { ...newEdges[i].data, traceHighlight: nestedState } };
-                                }
-                            }
-                            for (const condId of path.intermediateNodeIds) {
-                                const idx = updated.findIndex(n => n.id === condId);
-                                if (idx >= 0) {
-                                    updated[idx] = { ...updated[idx], data: { ...updated[idx].data, traceStatus: { state: nestedState } } };
-                                }
-                            }
-                        }
-                        return newEdges;
-                    });
-                    return updated;
-                });
-
-                prevStepRef.current = stepId;
-                return;
-            }
+            // The block that used to resolve a deferred nested step lived here. It is gone with the
+            // deferral above: the calling step's own end event now carries the nested workflow's
+            // outcome, so there is nothing left to wait for.
 
             // Ignore end events from dependency or nested workflows.
             if (event.attributes?.['workflow.id'] !== effectiveWorkflowIdRef.current) { return; }
