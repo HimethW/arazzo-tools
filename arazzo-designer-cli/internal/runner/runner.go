@@ -454,6 +454,7 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 					StepsStatus: state.StepsStatus,
 					Inputs:      inputs,
 					Error:       result.Error,
+					ErrorClass:  result.ErrorClass,
 				}
 
 			case models.ActionTypeGoto:
