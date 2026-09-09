@@ -1,0 +1,34 @@
+# Phase 12 / step 2 - Scenario 7: document_invalid
+#
+# WHAT IT TESTS: the step is malformed rather than pointing somewhere wrong. `channelPath` says WHICH
+# channel but not WHICH DIRECTION, and a message step with no direction has no meaning - the runner
+# cannot guess whether you meant to publish or to wait.
+#
+# EXPECTED  POST /run/noDirection  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "document_invalid"
+#   "error":       a 'channelPath' step requires 'action' (send or receive) - the message-flow
+#                  direction is otherwise undefined
+#
+# RETRY? No. Add `action: send` or `action: receive` to the step.
+#
+# TOLD APART FROM target_unresolved (example 06) BY WHERE THE FIX IS: the channel here exists and is
+# perfectly reachable. What is wrong is THIS file, on the lines below.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - document_invalid"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: noDirection
+    summary: A channel step that never says which way the message goes
+    steps:
+      - stepId: ambiguous
+        channelPath: localBus#/channels/events
+        # no `action` - deliberately

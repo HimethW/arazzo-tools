@@ -1,0 +1,44 @@
+# Phase 12 / step 2 - Scenario 8: criteria_unmet
+#
+# WHAT IT TESTS: NOTHING went wrong technically. The message was sent, it arrived, it decoded - and
+# the assertion on it did not hold. This is an ordinary test failure, and in a CI run it is by far
+# the most common one.
+#
+# That is exactly why it needs its own label. Without it, "the API returned the wrong value" and
+# "the broker was unreachable" arrive looking identical, and a pipeline cannot tell a real product
+# regression from flaky infrastructure.
+#
+# EXPECTED  POST /run/wrongAnswer  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "criteria_unmet"
+#   "error":       received message did not satisfy successCriteria
+#
+# RETRY? No - retrying reproduces it. That is the point of an assertion.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - criteria_unmet"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: wrongAnswer
+    summary: The message arrives fine and fails the assertion on it
+    steps:
+      - stepId: emit
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            marker: "actual-value"
+
+      - stepId: await
+        channelPath: localBus#/channels/events
+        action: receive
+        timeout: 2000
+        successCriteria:
+          - condition: $message.payload.marker == "expected-something-else"
