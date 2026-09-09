@@ -1379,8 +1379,25 @@ reading the run log — the CLI's own workflow description and the MCP responses
 REST-only tool.
 
 **What shipped:** a workflow description that reports the v1.1.0 and async facts (step 1), and a
-failure vocabulary carried beside every error message (step 2). No new runtime behaviour: nothing
-runs, fails or reports differently, and every new field is additive.
+failure vocabulary carried beside every error message (step 2). Every new field is additive, and no
+step runs differently than before.
+
+**One behaviour DID change**, found by review while classifying failures: a **nested workflow that
+failed was silently swallowed**. A step calling another workflow records no status of its own, so
+the parent reported `workflow_complete` with no error at all — the failure vanished from `/run`, from
+MCP and from the graph. It now fails the calling step and the parent, carrying the child's own class.
+A workflow that used to report success will correctly report failure.
+
+Three things followed from that one fix, and are worth knowing before touching span timing again:
+
+- The calling step's span was being closed **before** the nested workflow ran, so it always said
+  "error" with no reason — and showed a *successful* nested call as a failed step. It is now closed
+  afterwards, with the real outcome.
+- The webview held **two workarounds** for that early span (deferring the step's end event, and
+  hiding the step's span from its Logs tab). Fixing the producer broke the first one — the deferral
+  waited for an event that now arrives earlier, leaving the node stuck on "running". Both are gone.
+- A failed workflow's span said only `"step failed"`. It now names the step and the reason, which is
+  what the calling step's log entry shows.
 
 **The two remaining steps moved out.** The project-wide example sweep and the user-facing
 documentation page are now in the end-of-project batch, after Phase 14 — see
