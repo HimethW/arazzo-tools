@@ -1443,8 +1443,28 @@ is missing.
   through a live MCP server and through Copilot against examples 02, 05 and 06.
 - `listTool` — **DROPPED, deliberately.** See below.
 - **Failure classes — shipped.** [internal/failure](../../arazzo-designer-cli/internal/failure/failure.go)
-  is the one place the vocabulary lives: `adapter_unsupported`, `connect_failed`, `receive_timeout`,
-  `correlation_unresolved`, `serialize_failed`.
+  is the one place the vocabulary lives. **Every runtime failure path carries one** — the plan's
+  original five plus five more the enumeration turned up:
+
+  | class | situation |
+  |---|---|
+  | `adapter_unsupported` | the declared protocol has no adapter |
+  | `connect_failed` | the remote endpoint could not be reached — broker **or** HTTP |
+  | `receive_timeout` | nothing arrived before the timeout |
+  | `correlation_unresolved` | the `correlationId` expression produced no value |
+  | `serialize_failed` | the message could not be encoded or decoded |
+  | `target_unresolved` | points at something that does not exist (channel, operation, workflow) |
+  | `document_invalid` | the document itself is malformed |
+  | `criteria_unmet` | it all worked and `successCriteria` did not hold |
+  | `dependency_unmet` | the step never ran; a `dependsOn` prerequisite had not completed |
+  | `unsupported_feature` | valid per spec, not implemented (cross-document `dependsOn`) |
+
+  Three distinctions are deliberate and worth preserving. `target_unresolved` vs `document_invalid`
+  differ by WHERE the fix is — the referenced spec, or this file. `document_invalid` vs
+  `unsupported_feature` differ by whether the document is wrong at all: calling a correct file
+  invalid sends a user, or an assistant, chasing a problem that is not there. And `criteria_unmet`
+  separates a product regression from infrastructure, which is the single most useful split for a CI
+  report.
 
   The class is attached **where the failure is created**, never derived later from the message text —
   otherwise rewording a message would silently change a class, which is the exact fragility the field
@@ -1454,8 +1474,10 @@ is missing.
   and reads the receive timeout from the existing `ErrReceiveTimeout` **sentinel**, not from wording.
 
   It rides on `StepResult.ErrorClass` → `WorkflowExecutionResult.ErrorClass` → `RunResponse.error_class`.
-  `createFailureResult` takes the class as a **variadic** parameter, so the ~15 call sites whose
-  failures are outside the vocabulary are untouched and correctly report no class.
+  `createFailureResult` takes the class as a **variadic** parameter — which means the compiler cannot
+  require it, so a test does (below). A workflow that runs to completion with a failed step carries
+  the first failure's class up, and a failed dependency carries its own class rather than a wrapper
+  saying only "a dependency failed".
 
   Reported on all three paths a caller can see a failure through: `POST /run`, `GET /lastResult`
   (inherits it from the cached response), and the per-workflow MCP tool — which prefixes it as
@@ -1467,12 +1489,25 @@ is missing.
   already spoken for on the transport axis, `receive_timeout` has no HTTP equivalent at all (504 means
   an upstream did not answer a request; nothing sent one), and the MCP path has no HTTP status to use.
   gRPC, JSON-RPC and every major API vendor keep the two axes separate for the same reason.
+- **Completeness is enforced by reading the source, not by running it.**
+  [coverage_test.go](../../arazzo-designer-cli/internal/failure/coverage_test.go) walks the AST of
+  `internal/runner` and `internal/runner/executor` and fails — with file and line — on any
+  `createFailureResult` call, or `StepResult`/`WorkflowExecutionResult` literal, that reports an error
+  with no class beside it. A behaviour test can only cover the paths someone thought to provoke; this
+  catches a new one on the day it is written. **It found three gaps the moment it was added**, one of
+  them a whole category (`dependsOn` gate failures).
+- Every class is also provoked from a **real** failure in
+  [failure_class_test.go](../../arazzo-designer-cli/internal/runner/executor/failure_class_test.go)
+  and [runner_phase7_test.go](../../arazzo-designer-cli/internal/runner/runner_phase7_test.go): a
+  kafka source, an unregisterable content type, a real timeout, an unresolvable `$inputs` expression,
+  a dial to port 1, a missing channel, a directionless step, a failing assertion, an ungated
+  prerequisite, a cross-document `dependsOn`.
 - `server_run_test.go` — extended. The old shape is pinned on the **wire**, not just the struct: a
   400 response is marshalled and checked key-by-key for the absence of `error_class` and the presence
-  of everything that was there before. All five classes are provoked from **real** failures in
-  [failure_class_test.go](../../arazzo-designer-cli/internal/runner/executor/failure_class_test.go)
-  (kafka source, an unregisterable content type, a real timeout, an unresolvable `$inputs` expression,
-  a dial to port 1), plus a test that a failure outside the vocabulary reports no class at all.
+  of everything that was there before.
+- One example per class in
+  [step2_errorLabels/](../../examples/async_test/phase12/step2_errorLabels/README.md), plus a
+  succeeding workflow as the regression check — eleven in all, none needing the internet.
 
 > **Why `listTool` was dropped.** The stated benefit — telling REST-only from event-driven "without a
 > second call" — does not survive contact with the data. A workflow is not one source type:
