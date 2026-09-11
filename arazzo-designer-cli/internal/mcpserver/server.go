@@ -43,6 +43,11 @@ type RunResponse struct {
 	Status  string                 `json:"status"`
 	Outputs map[string]interface{} `json:"outputs,omitempty"`
 	Error   string                 `json:"error,omitempty"`
+	// ErrorClass names WHY the run failed, from the internal/failure vocabulary, so a caller can
+	// branch on the kind of failure instead of matching substrings of Error - prose that is written
+	// for people and gets reworded. Omitted for a failure outside that vocabulary, and for the
+	// request-level failures below (a bad input is already an HTTP 400).
+	ErrorClass string `json:"error_class,omitempty"`
 }
 
 // NewMCPServer creates a new MCP server that exposes Arazzo workflows as tools.
@@ -279,6 +284,12 @@ func (s *MCPServer) executeWorkflowHandler(ctx context.Context, workflowID strin
 
 	// Return success or error based on workflow status
 	if result.Status == models.WorkflowStatusError {
+		// Name the class in the text too. MCP reports a tool failure as a MESSAGE, not a structured
+		// body, so this line is the only place an agent reliably sees it - the result JSON that
+		// follows carries error_class as a field, but a client may only surface the message.
+		if result.ErrorClass != "" {
+			return mcp.NewToolResultError(fmt.Sprintf("Workflow failed [%s]: %s\n\n%s", result.ErrorClass, result.Error, string(resultJSON))), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Workflow failed: %s\n\n%s", result.Error, string(resultJSON))), nil
 	}
 
@@ -454,6 +465,7 @@ func (s *MCPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	if result.Status == models.WorkflowStatusError {
 		resp.Status = "failed"
 		resp.Error = result.Error
+		resp.ErrorClass = result.ErrorClass
 		resp.Outputs = result.Outputs
 	} else {
 		resp.Status = "success"

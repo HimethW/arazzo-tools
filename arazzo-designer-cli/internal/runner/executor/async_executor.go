@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wso2/arazzo-designer-cli/internal/evaluator"
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 	"github.com/wso2/arazzo-designer-cli/internal/models"
 	"github.com/wso2/arazzo-designer-cli/internal/telemetry"
 )
@@ -29,7 +30,14 @@ import (
 // the step is always treated as async even if resolution fails (nil info), so a malformed channel
 // hard-fails rather than silently being executed as HTTP.
 func (se *StepExecutor) resolveAsyncTarget(step map[string]interface{}) (*AsyncInfo, bool) {
-	finder := NewAsyncFinder(se.SourceDescriptions)
+	return ResolveAsyncTarget(se.SourceDescriptions, step)
+}
+
+// ResolveAsyncTarget is resolveAsyncTarget without a StepExecutor, so a caller that only wants to
+// DESCRIBE a step (the CLI's workflow details, Phase 12) resolves it exactly as a run would rather
+// than re-deriving "is this async?" from the presence of a channelPath.
+func ResolveAsyncTarget(sourceDescriptions map[string]interface{}, step map[string]interface{}) (*AsyncInfo, bool) {
+	finder := NewAsyncFinder(sourceDescriptions)
 	if cp, _ := step["channelPath"].(string); strings.TrimSpace(cp) != "" {
 		return finder.FindChannelByPath(cp), true
 	}
@@ -51,28 +59,28 @@ func (se *StepExecutor) resolveAsyncTarget(step map[string]interface{}) (*AsyncI
 // the HTTP span has to its step.
 func (se *StepExecutor) executeAsyncStep(step map[string]interface{}, info *AsyncInfo, state *models.ExecutionState, stepID, parentSpanID string) *models.StepResult {
 	if info == nil {
-		return se.createFailureResult(stepID, step, state, "AsyncAPI target could not be resolved (channel or operation not found)")
+		return se.createFailureResult(stepID, step, state, "AsyncAPI target could not be resolved (channel or operation not found)", failure.TargetUnresolved)
 	}
 	// Pick the transport from the AsyncAPI `servers` declaration (Phase 11): ws/mqtt -> real broker
 	// adapter, no servers -> the default in-memory adapter.
 	adapter, err := se.adapterFor(info)
 	if err != nil {
-		return se.createFailureResult(stepID, step, state, err.Error())
+		return se.createFailureResult(stepID, step, state, err.Error(), failure.ClassOf(err))
 	}
 	if adapter == nil {
-		return se.createFailureResult(stepID, step, state, "AsyncAPI execution requires a configured adapter for this protocol")
+		return se.createFailureResult(stepID, step, state, "AsyncAPI execution requires a configured adapter for this protocol", failure.AdapterUnsupported)
 	}
 
 	action, err := resolveAsyncAction(step, info)
 	if err != nil {
-		return se.createFailureResult(stepID, step, state, err.Error())
+		return se.createFailureResult(stepID, step, state, err.Error(), failure.ClassOf(err))
 	}
 	channel := info.ChannelAddress
 	if channel == "" {
 		channel = info.ChannelKey
 	}
 	if channel == "" {
-		return se.createFailureResult(stepID, step, state, "AsyncAPI step has no resolvable channel")
+		return se.createFailureResult(stepID, step, state, "AsyncAPI step has no resolvable channel", failure.TargetUnresolved)
 	}
 
 	switch action {
@@ -81,7 +89,7 @@ func (se *StepExecutor) executeAsyncStep(step map[string]interface{}, info *Asyn
 	case "receive":
 		return se.executeReceive(step, adapter, info, channel, state, stepID, parentSpanID)
 	default:
-		return se.createFailureResult(stepID, step, state, fmt.Sprintf("invalid AsyncAPI action %q", action))
+		return se.createFailureResult(stepID, step, state, fmt.Sprintf("invalid AsyncAPI action %q", action), failure.DocumentInvalid)
 	}
 }
 
@@ -195,10 +203,10 @@ func resolveAsyncAction(step map[string]interface{}, info *AsyncInfo) (string, e
 		return opAction, nil
 	}
 	if stepAction == "" { //if we reach here that means that a channelPath is given. if there is no action then there is an error
-		return "", fmt.Errorf("a 'channelPath' step requires 'action' (send or receive) - the message-flow direction is otherwise undefined")
+		return "", failure.Errorf(failure.DocumentInvalid, "a 'channelPath' step requires 'action' (send or receive) - the message-flow direction is otherwise undefined")
 	}
 	if stepAction != "send" && stepAction != "receive" {
-		return "", fmt.Errorf("invalid action %q (must be 'send' or 'receive')", stepAction)
+		return "", failure.Errorf(failure.DocumentInvalid, "invalid action %q (must be 'send' or 'receive')", stepAction)
 	}
 	return stepAction, nil
 }
@@ -223,11 +231,11 @@ func (se *StepExecutor) executeSend(step map[string]interface{}, adapter Adapter
 	// cannot be encoded must not be published as an empty message and reported as a successful send.
 	serializer, err := se.serializerRegistry().For(contentType)
 	if err != nil {
-		return se.createFailureResult(stepID, step, state, fmt.Sprintf("send on channel %q: %v", channel, err))
+		return se.createFailureResult(stepID, step, state, fmt.Sprintf("send on channel %q: %v", channel, err), failure.ClassOf(err))
 	}
 	raw, err := serializer.Serialize(payload)
 	if err != nil {
-		return se.createFailureResult(stepID, step, state, fmt.Sprintf("send on channel %q: could not serialize payload: %v", channel, err))
+		return se.createFailureResult(stepID, step, state, fmt.Sprintf("send on channel %q: could not serialize payload: %v", channel, err), failure.SerializeFailed)
 	}
 	// Publish the content type as RESOLVED, not the serializer's canonical name: a vendor type
 	// ("application/vnd.order+json") or a charset parameter is information the receiver may care about,
@@ -254,7 +262,7 @@ func (se *StepExecutor) executeSend(step map[string]interface{}, adapter Adapter
 
 	if err := adapter.Send(channel, msg); err != nil {
 		span.end(telemetry.SpanStatusError, err.Error(), nil)
-		return se.createFailureResult(stepID, step, state, fmt.Sprintf("send on channel %q failed: %v", channel, err))
+		return se.createFailureResult(stepID, step, state, fmt.Sprintf("send on channel %q failed: %v", channel, err), failure.ClassOf(err))
 	}
 
 	// A send step is NOT special: like every other step it may declare `successCriteria` and
@@ -302,14 +310,16 @@ func (se *StepExecutor) executeSend(step map[string]interface{}, adapter Adapter
 		}
 	}
 
-	failureReason := ""
+	failureReason, failureClass := "", ""
 	if !success {
 		failureReason = "sent message did not satisfy successCriteria"
+		failureClass = string(failure.CriteriaUnmet)
 	}
 
 	return &models.StepResult{
 		StepID:       stepID,
 		Success:      success,
+		ErrorClass:   failureClass,
 		ResponseBody: payload,
 		Outputs:      outputs,
 		Error:        failureReason,
@@ -372,7 +382,7 @@ func (se *StepExecutor) executeReceive(step map[string]interface{}, adapter Adap
 	// worse than failing. Only the ABSENCE of a correlationId means "take the next message".
 	correlationID, corrErr := se.resolveCorrelationID(step, state, stepID, channel)
 	if corrErr != "" {
-		return se.createFailureResult(stepID, step, state, corrErr)
+		return se.createFailureResult(stepID, step, state, corrErr, failure.CorrelationUnresolved)
 	}
 
 	timeout := receiveTimeout(step)
@@ -394,7 +404,13 @@ func (se *StepExecutor) executeReceive(step map[string]interface{}, adapter Adap
 	msg, err := adapter.Receive(channel, correlation, timeout)
 	if err != nil {
 		reason := fmt.Sprintf("receive on channel %q failed: %v", channel, err)
+		// Anything else the adapter reports keeps the class the adapter gave it - a receive that
+		// failed because the broker was unreachable is still connect_failed.
+		class := failure.ClassOf(err)
+		// The timeout is recognised by its SENTINEL, never by the wording below, so rewording these
+		// messages cannot change the class.
 		if errors.Is(err, ErrReceiveTimeout) {
+			class = failure.ReceiveTimeout
 			if correlationID != "" {
 				reason = fmt.Sprintf("receive on channel %q timed out after %s: no message matching correlationId %q arrived", channel, timeout, correlationID)
 			} else {
@@ -402,7 +418,7 @@ func (se *StepExecutor) executeReceive(step map[string]interface{}, adapter Adap
 			}
 		}
 		span.end(telemetry.SpanStatusError, reason, nil)
-		return se.createFailureResult(stepID, step, state, reason)
+		return se.createFailureResult(stepID, step, state, reason, class)
 	}
 
 	// Decode the wire bytes into a payload when the adapter delivered only Raw (Phase 10). The
@@ -444,13 +460,13 @@ func (se *StepExecutor) executeReceive(step map[string]interface{}, adapter Adap
 		if serr != nil {
 			reason := fmt.Sprintf("receive on channel %q: cannot decode message: %v", channel, serr)
 			span.end(telemetry.SpanStatusError, reason, nil)
-			return se.createFailureResult(stepID, step, state, reason)
+			return se.createFailureResult(stepID, step, state, reason, failure.ClassOf(serr))
 		}
 		decoded, derr := serializer.Deserialize(msg.Raw)
 		if derr != nil {
 			reason := fmt.Sprintf("receive on channel %q: could not deserialize message body: %v", channel, derr)
 			span.end(telemetry.SpanStatusError, reason, nil)
-			return se.createFailureResult(stepID, step, state, reason)
+			return se.createFailureResult(stepID, step, state, reason, failure.SerializeFailed)
 		}
 		payload = decoded
 	}
@@ -496,14 +512,16 @@ func (se *StepExecutor) executeReceive(step map[string]interface{}, adapter Adap
 		}
 	}
 
-	failureReason := ""
+	failureReason, failureClass := "", ""
 	if !success {
 		failureReason = "received message did not satisfy successCriteria"
+		failureClass = string(failure.CriteriaUnmet)
 	}
 
 	return &models.StepResult{
 		StepID:       stepID,
 		Success:      success,
+		ErrorClass:   failureClass,
 		ResponseBody: payload,
 		Outputs:      outputs,
 		Error:        failureReason,

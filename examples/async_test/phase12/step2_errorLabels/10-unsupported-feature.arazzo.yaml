@@ -1,0 +1,45 @@
+# Phase 12 / step 2 - Scenario 10: unsupported_feature
+#
+# WHAT IT TESTS: a document that is CORRECT and that this runner cannot execute yet. Cross-document
+# step dependencies - `dependsOn` naming a step in another Arazzo document - are valid per the spec;
+# the runner has simply not implemented them (they need executable `type: arazzo` sources, a planned
+# item).
+#
+# EXPECTED  POST /run/crossDoc  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "unsupported_feature"
+#   "error":       step 'needsRemote' dependsOn '$sourceDescriptions.other.wf.steps.s':
+#                  cross-document step dependencies are not yet supported
+#
+# WHY NOT document_invalid: because the document is not invalid. Telling a user - or an assistant -
+# to "fix" a correct file would send them chasing a problem that is not there. The distinction is the
+# difference between "you wrote it wrong" and "we have not built it yet".
+#
+# WHY NOT adapter_unsupported: that one means "no adapter for this protocol", a question about
+# transports. This is a question about spec features. Keeping them apart lets a report count the two
+# separately, since they point at different roadmap items.
+#
+# RETRY? Never - until the feature exists.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - unsupported_feature"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: crossDoc
+    summary: Depends on a step in another Arazzo document
+    steps:
+      - stepId: needsRemote
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            a: 1
+        dependsOn:
+          - $sourceDescriptions.other.wf.steps.s

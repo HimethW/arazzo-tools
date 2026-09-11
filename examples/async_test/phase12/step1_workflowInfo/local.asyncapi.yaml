@@ -1,0 +1,20 @@
+# NO `servers` section. That is not a mistake: a document with no declared server runs on the
+# in-process in-memory adapter, which is what the Phase 9/10 examples and the unit tests use. The
+# description says so explicitly rather than leaving it blank.
+asyncapi: 3.0.0
+info:
+  title: Local Bus
+  version: 1.0.0
+
+channels:
+  events:
+    address: local/events
+    messages:
+      event:
+        contentType: application/json
+
+operations:
+  emitEvent:
+    action: send
+    channel:
+      $ref: '#/channels/events'

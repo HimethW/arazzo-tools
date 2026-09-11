@@ -1,0 +1,47 @@
+# Phase 12 / step 1 - Scenario 2: All THREE ways of targeting an async operation.
+#
+# WHAT IT TESTS: that the description resolves a step the way the runner will, rather than reading the
+# step's text. The three steps below are written completely differently and must all describe the SAME
+# channel, with the same adapter and the same declarations.
+#
+# `viaOperationId` is the case a text-only reader cannot get right: it names no source description at
+# all, so only looking INSIDE the declared specs says which one owns `consumeOrder`.
+#
+# Note `channel` is the broker-side ADDRESS (`arazzo/phase12/orders`), not the channel key (`orders`)
+# written in the channelPath - resolving is what turns one into the other.
+#
+# EXPECTED (get_workflow_details, workflow `threeWays`) - identical for all three steps:
+#   stepType asyncapi | channel arazzo/phase12/orders | adapter mqtt
+#   contentTypes ["application/json"] | correlationIdLocations ["$message.payload#/token"]
+#   action: viaChannelPath send (its own) - viaOperationId receive - viaOperationPath send
+#           (the OPERATION's action wins over the step's, exactly as it does at run time)
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 12 - three targeting forms"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: orderBus
+    url: ./orders.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: threeWays
+    summary: One channel, reached three different ways
+    steps:
+      - stepId: viaChannelPath
+        description: A JSON Pointer straight to the channel
+        channelPath: orderBus#/channels/orders
+        action: send
+
+      - stepId: viaOperationId
+        description: A BARE operationId - names no source, must be resolved by lookup
+        operationId: consumeOrder
+        timeout: 5000
+        correlationId: $inputs.token
+
+      - stepId: viaOperationPath
+        description: A JSON Pointer to an operation, which then points at the channel
+        operationPath: orderBus#/operations/publishOrder

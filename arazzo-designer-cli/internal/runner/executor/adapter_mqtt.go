@@ -13,6 +13,7 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 )
 
 // mqttOpTimeout bounds how long connect/subscribe/publish may block.
@@ -151,10 +152,10 @@ func (a *MQTTAdapter) currentClient() mqttClient {
 // waitToken waits for an MQTT operation to complete and normalizes its failure/timeout into an error.
 func waitToken(t mqtt.Token, op string) error {
 	if !t.WaitTimeout(mqttOpTimeout) {
-		return fmt.Errorf("mqtt %s timed out after %s", op, mqttOpTimeout)
+		return failure.Errorf(failure.ConnectFailed, "mqtt %s timed out after %s", op, mqttOpTimeout)
 	}
 	if err := t.Error(); err != nil {
-		return fmt.Errorf("mqtt %s failed: %w", op, err)
+		return failure.Wrap(failure.ConnectFailed, fmt.Errorf("mqtt %s failed: %w", op, err))
 	}
 	return nil
 }

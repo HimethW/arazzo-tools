@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 	"github.com/wso2/arazzo-designer-cli/internal/httpexec"
 	"github.com/wso2/arazzo-designer-cli/internal/models"
 	"github.com/wso2/arazzo-designer-cli/internal/telemetry"
@@ -66,6 +67,59 @@ func NewStepExecutor(
 	}
 }
 
+// emitStepEnd closes a step's span with the outcome the result carries. Shared so a nested workflow
+// call, whose span cannot be closed inside ExecuteStep, is reported exactly like every other step.
+func (se *StepExecutor) emitStepEnd(state *models.ExecutionState, stepID, spanID string, start time.Time, result *models.StepResult) {
+	dur := float64(time.Since(start).Milliseconds())
+	status := telemetry.SpanStatusOK
+	errMsg := ""
+	if !result.Success {
+		status = telemetry.SpanStatusError
+		errMsg = result.Error
+	}
+	attrs := map[string]string{
+		"step.id":     stepID,
+		"workflow.id": state.WorkflowID,
+	}
+	if result.StatusCode > 0 {
+		attrs["http.status_code"] = fmt.Sprintf("%d", result.StatusCode)
+	}
+	// Include extracted step outputs in the end span
+	if stData, ok := state.StepsData[stepID].(map[string]interface{}); ok {
+		if outs := stData["outputs"]; outs != nil {
+			if b, err := json.Marshal(outs); err == nil {
+				attrs["step.outputs"] = string(b)
+			}
+		}
+	}
+	stepEnd := time.Now()
+	se.Sink.Send(telemetry.TraceEvent{
+		Lifecycle:     telemetry.LifecycleEnd,
+		Context:       telemetry.SpanContext{TraceID: state.TraceID, SpanID: spanID},
+		ParentID:      state.WorkflowSpanID,
+		Name:          stepID,
+		Kind:          telemetry.OTelSpanKindInternal,
+		ArazzoKind:    telemetry.SpanKindStep,
+		StartTime:     start,
+		EndTime:       &stepEnd,
+		DurationMs:    &dur,
+		StatusCode:    status,
+		StatusMessage: errMsg,
+		Attributes:    attrs,
+	})
+}
+
+// EndNestedWorkflowStep closes the span ExecuteStep left open for a nested workflow call, now that
+// the nested run has finished and the step's real outcome - and, on failure, its reason - is known.
+// A no-op for every other kind of step, so the runner can call it unconditionally.
+func (se *StepExecutor) EndNestedWorkflowStep(state *models.ExecutionState, result *models.StepResult) {
+	if result == nil || result.PendingSpanID == "" {
+		return
+	}
+	se.emitStepEnd(state, result.StepID, result.PendingSpanID, result.PendingSpanStart, result)
+	result.PendingSpanID = "" // closed once, however many times this is called
+}
+
 // ExecuteStep executes a single step and returns the result.
 func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[string]interface{}, state *models.ExecutionState) *models.StepResult {
 	stepID, _ := step["stepId"].(string)
@@ -91,50 +145,18 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 
 	// Helper to emit step end span and return the result
 	endStep := func(result *models.StepResult) *models.StepResult {
-		dur := float64(time.Since(stepStart).Milliseconds())
-		status := telemetry.SpanStatusOK
-		errMsg := ""
-		if !result.Success {
-			status = telemetry.SpanStatusError
-			errMsg = result.Error
-		}
-		attrs := map[string]string{
-			"step.id":     stepID,
-			"workflow.id": state.WorkflowID,
-		}
-		if result.StatusCode > 0 {
-			attrs["http.status_code"] = fmt.Sprintf("%d", result.StatusCode)
-		}
-		// Include extracted step outputs in the end span
-		if stData, ok := state.StepsData[stepID].(map[string]interface{}); ok {
-			if outs := stData["outputs"]; outs != nil {
-				if b, err := json.Marshal(outs); err == nil {
-					attrs["step.outputs"] = string(b)
-				}
-			}
-		}
-		stepEnd := time.Now()
-		se.Sink.Send(telemetry.TraceEvent{
-			Lifecycle:     telemetry.LifecycleEnd,
-			Context:       telemetry.SpanContext{TraceID: state.TraceID, SpanID: stepSpanID},
-			ParentID:      state.WorkflowSpanID,
-			Name:          stepID,
-			Kind:          telemetry.OTelSpanKindInternal,
-			ArazzoKind:    telemetry.SpanKindStep,
-			StartTime:     stepStart,
-			EndTime:       &stepEnd,
-			DurationMs:    &dur,
-			StatusCode:    status,
-			StatusMessage: errMsg,
-			Attributes:    attrs,
-		})
+		se.emitStepEnd(state, stepID, stepSpanID, stepStart, result)
 		return result
 	}
 
 	// Check for nested workflow execution
 	if workflowID, ok := step["workflowId"].(string); ok && workflowID != "" {
 		log.Printf("Step %s is a nested workflow call to %s", stepID, workflowID)
-		return endStep(&models.StepResult{
+		// Deliberately NOT ended here. The nested workflow has not run yet - the runner runs it
+		// after this returns - so ending the span now would report an outcome nobody knows: every
+		// nested call, successful ones included, closed as an error with no reason. The runner
+		// closes it with EndNestedWorkflowStep once the nested run is in.
+		return &models.StepResult{
 			StepID:     stepID,
 			Success:    false,
 			StatusCode: 0,
@@ -143,7 +165,9 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 				WorkflowID: workflowID,
 			},
 			IsNestedWorkflow: true,
-		})
+			PendingSpanID:    stepSpanID,
+			PendingSpanStart: stepStart,
+		}
 	}
 
 	// AsyncAPI step? (a channelPath, or an operationId that resolves to an AsyncAPI operation.)
@@ -157,7 +181,7 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 	opInfo := se.findOperation(step)
 	if opInfo == nil {
 		log.Printf("Could not find operation for step %s", stepID)
-		return endStep(se.createFailureResult(stepID, step, state, "Operation not found"))
+		return endStep(se.createFailureResult(stepID, step, state, "Operation not found", failure.TargetUnresolved))
 	}
 
 	// Prepare parameters
@@ -198,7 +222,8 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 	httpResp, err := se.HTTPExecutor.ExecuteRequest(method, fullURL, params, body, state.TraceID, stepSpanID)
 	if err != nil {
 		log.Printf("HTTP request failed for step %s: %v", stepID, err)
-		return endStep(se.createFailureResult(stepID, step, state, fmt.Sprintf("HTTP error: %v", err)))
+		// The REST twin of a broker that will not accept a connection - same situation, same advice.
+		return endStep(se.createFailureResult(stepID, step, state, fmt.Sprintf("HTTP error: %v", err), failure.ConnectFailed))
 	}
 
 	// Extract fields from response map
@@ -286,6 +311,14 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 		}
 	}
 
+	// The request itself worked - it was the ANSWER that was wrong. That is an ordinary assertion
+	// failure and must stay distinguishable from an infrastructure one, which is the whole point of
+	// the class: a CI run sees this far more often than a broker being down.
+	failureClass := ""
+	if !success {
+		failureClass = string(failure.CriteriaUnmet)
+	}
+
 	return endStep(&models.StepResult{
 		StepID:       stepID,
 		Success:      success,
@@ -294,6 +327,7 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 		Headers:      respHeaders,
 		Outputs:      outputs,
 		Error:        failureReason,
+		ErrorClass:   failureClass,
 		NextAction:   nextAction,
 	})
 }
@@ -365,16 +399,30 @@ func (se *StepExecutor) extractAuthHeaders() map[string]string {
 }
 
 // createFailureResult creates a StepResult for a failed step.
-func (se *StepExecutor) createFailureResult(stepID string, step map[string]interface{}, state *models.ExecutionState, errMsg string) *models.StepResult {
+// The optional class names WHY the step failed (internal/failure). It is variadic so the many call
+// sites whose failure is outside that vocabulary stay as they are and report no class, which is the
+// honest answer for them.
+func (se *StepExecutor) createFailureResult(stepID string, step map[string]interface{}, state *models.ExecutionState, errMsg string, class ...failure.Class) *models.StepResult {
+	// Say WHY, in the run log, next to the step that failed. The reason already reaches the step's
+	// state, its result and its span - but not the terminal, where the log otherwise jumps straight
+	// from the step banner to "success=false" with no explanation. Every success path logs what it
+	// did; a failure is the case where that detail matters most.
+	log.Printf("Step %s failed: %s", stepID, errMsg)
+
 	state.StepsStatus[stepID] = models.StepStatusFailure
 	state.StepsData[stepID] = map[string]interface{}{
 		"error": errMsg,
+	}
+	failureClass := ""
+	if len(class) > 0 {
+		failureClass = string(class[0])
 	}
 	nextAction := se.ActionHandler.DetermineNextAction(step, false, state)
 	return &models.StepResult{
 		StepID:     stepID,
 		Success:    false,
 		Error:      errMsg,
+		ErrorClass: failureClass,
 		NextAction: nextAction,
 	}
 }

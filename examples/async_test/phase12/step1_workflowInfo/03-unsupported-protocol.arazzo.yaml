@@ -1,0 +1,33 @@
+# Phase 12 / step 1 - Scenario 3: A protocol the runner cannot carry.
+#
+# WHAT IT TESTS: that a description says WHY a step cannot run, before anything runs and without
+# contacting a broker. This is the case where describing is worth more than running: the answer is
+# available immediately, and it is the exact string the run would fail with.
+#
+# EXPECTED (get_workflow_details, workflow `clickStream`):
+#   emitClick : stepType asyncapi, channel click-events, action send, contentTypes ["application/json"]
+#               NO `adapter` key; instead
+#               adapterError = the "kafka" protocol is not yet supported: a Kafka adapter (with
+#               Avro/Protobuf schema support) is a planned future phase - supported protocols:
+#               ws, wss, mqtt, mqtts (and in-memory when no servers are declared)
+#
+# Run the same workflow and the error is character-for-character the same string.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 12 - unsupported protocol"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: streamBus
+    url: ./stream.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: clickStream
+    summary: Targets a Kafka broker, which has no adapter yet
+    steps:
+      - stepId: emitClick
+        channelPath: streamBus#/channels/clicks
+        action: send

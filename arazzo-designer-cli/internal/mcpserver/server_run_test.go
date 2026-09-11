@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
+	"github.com/wso2/arazzo-designer-cli/internal/models"
 	"github.com/wso2/arazzo-designer-cli/internal/runner"
 	"github.com/wso2/arazzo-designer-cli/internal/telemetry"
 )
@@ -225,5 +230,119 @@ func TestHandleRun_InvalidJSONBody(t *testing.T) {
 	srv.handleRun(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Failure classes (Phase 12 step 2)
+// ---------------------------------------------------------------------------
+
+// A request-level failure is not a workflow failure: it is already an HTTP 400, and it carries no
+// class. This also pins the response's BACKWARDS COMPATIBILITY - the raw JSON must not grow an
+// error_class key for anything that did not have one before.
+func TestHandleRun_RequestFailuresCarryNoErrorClass(t *testing.T) {
+	srv := buildTestServer([]interface{}{
+		testWorkflow("wf", map[string]interface{}{
+			"required":   []interface{}{"token"},
+			"properties": map[string]interface{}{"token": map[string]interface{}{"type": "string"}},
+		}, true),
+	})
+
+	status, resp := doPost(t, srv, "/run/wf", map[string]interface{}{"inputs": map[string]interface{}{}})
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", status)
+	}
+	if resp.ErrorClass != "" {
+		t.Errorf("ErrorClass = %q, want empty for a request-level failure", resp.ErrorClass)
+	}
+
+	// The wire form, not just the struct: an old client must see exactly the keys it saw before.
+	raw, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := keys["error_class"]; has {
+		t.Errorf("error_class must be omitted when there is no class; got %s", raw)
+	}
+	for _, want := range []string{"status", "error"} {
+		if _, has := keys[want]; !has {
+			t.Errorf("response lost the %q key: %s", want, raw)
+		}
+	}
+}
+
+// An async failure must reach the HTTP response WITH its class, end to end: a real Arazzo document,
+// a real run, a real POST. This is the path a script against /run actually uses.
+func TestHandleRun_AsyncFailureReportsItsClass(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	write("stream.asyncapi.yaml", `asyncapi: 3.0.0
+info:
+  title: Stream
+  version: 1.0.0
+servers:
+  cluster:
+    host: kafka.example.com:9092
+    protocol: kafka
+channels:
+  events:
+    address: events
+`)
+	arazzo := write("wf.arazzo.yaml", `arazzo: 1.1.0
+info:
+  title: T
+  version: "1.0.0"
+sourceDescriptions:
+  - name: stream
+    url: ./stream.asyncapi.yaml
+    type: asyncapi
+workflows:
+  - workflowId: emitFlow
+    steps:
+      - stepId: emit
+        channelPath: stream#/channels/events
+        action: send
+`)
+
+	srv, err := NewMCPServer(arazzo, 0, &models.RuntimeParams{}, &telemetry.NoopSink{})
+	if err != nil {
+		t.Fatalf("NewMCPServer: %v", err)
+	}
+
+	status, resp := doPost(t, srv, "/run/emitFlow", map[string]interface{}{})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200 - a failed workflow is still a successful request", status)
+	}
+	if resp.Status != "failed" {
+		t.Fatalf("Status = %q, want failed", resp.Status)
+	}
+	if resp.ErrorClass != string(failure.AdapterUnsupported) {
+		t.Errorf("ErrorClass = %q, want %q (message: %s)", resp.ErrorClass, failure.AdapterUnsupported, resp.Error)
+	}
+	// The message is unchanged by classification - it is still there, in full, for a person.
+	if !strings.Contains(resp.Error, "not yet supported") {
+		t.Errorf("the human-readable message must survive: %q", resp.Error)
+	}
+
+	// GET /lastResult returns the cached response, so it inherits the class rather than recomputing.
+	req := httptest.NewRequest(http.MethodGet, "/lastResult/emitFlow", nil)
+	w := httptest.NewRecorder()
+	srv.handleLastResult(w, req)
+	var cached RunResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&cached); err != nil {
+		t.Fatal(err)
+	}
+	if cached.ErrorClass != resp.ErrorClass {
+		t.Errorf("lastResult ErrorClass = %q, want %q", cached.ErrorClass, resp.ErrorClass)
 	}
 }

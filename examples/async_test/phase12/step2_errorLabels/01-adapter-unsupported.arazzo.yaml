@@ -1,0 +1,33 @@
+# Phase 12 / step 2 - Scenario 1: adapter_unsupported
+#
+# WHAT IT TESTS: a protocol the runner has no adapter for. The AsyncAPI document declares kafka; the
+# runner supports ws, wss, mqtt, mqtts and in-memory.
+#
+# EXPECTED  POST /run/clickStream  ->  HTTP 200 (the REQUEST succeeded; the workflow did not)
+#   "status":      "failed"
+#   "error_class": "adapter_unsupported"
+#   "error":       the "kafka" protocol is not yet supported: ...
+#
+# RETRY? Never. No amount of retrying makes a missing adapter appear - the document or the runner has
+# to change. This is the class whose whole value is telling a client NOT to retry.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - adapter_unsupported"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: streamBus
+    url: ./stream.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: clickStream
+    summary: Sends to a Kafka broker the runner cannot speak to
+    steps:
+      - stepId: emit
+        channelPath: streamBus#/channels/clicks
+        action: send
+        requestBody:
+          payload:
+            clickId: "c-1"

@@ -1230,6 +1230,24 @@ and that declaration is the contract between publisher and subscriber. Until now
 receive searched the entire message, which matches a message that merely CARRIES the same value
 somewhere unrelated — the workflow then proceeds on the wrong message and reports success.
 
+**The Arazzo spec requires this, and we were only inferring it.** Arazzo v1.1.0's Step Object describes
+`correlationId` as: *"A correlationId in AsyncAPI links a request with its response (or more broadly, to
+trace a single logical transaction across multiple asynchronous messages). Only applicable to `asyncapi`
+steps with action `receive` and **has to be in-sync with correlationId defined in the AsyncAPI
+document**."* That settles two things this section previously argued from first principles: the field is
+**receive-only** (so placing the id on a send is the author's job, and inventing a send-side
+`correlationId` would contradict the spec), and being "in-sync with the AsyncAPI document" is a stated
+requirement rather than a nicety - which is exactly what honouring `correlationId.location` delivers.
+
+**And Arazzo cannot name a message, which is why every declared location is checked.** The Step Object's
+only targeting fields are `operationId` ("an existing, resolvable operation"), `operationPath` ("a JSON
+Pointer to reference an operation"), `channelPath` ("a JSON Pointer to reference **an event channel**")
+and `workflowId`; the Request Body Object offers only `contentType` and `payload`. Nothing addresses a
+key under `channels.<x>.messages`. So when a channel carries several message kinds, a step has no way to
+say which one it means - the runtime must accept a match at ANY declared location, and on the send side
+`requestBody.contentType` is the only lever available (and no lever at all when the kinds share a
+format, as in example 04).
+
 - **The declaration is authoritative, with no fall-through.** `AsyncInfo.DeclaredCorrelationLocations()`
   reads every location the channel's messages declare, dereferencing **both** the message and the
   Correlation ID Object (each is commonly a `$ref` into `components.messages` / `components.correlationIds`
@@ -1354,22 +1372,64 @@ end-to-end sample for the chosen broker.
 
 </details>
 
-### Phase 12: CLI, MCP, Documentation, And Samples — ❌ NOT STARTED (partial samples exist)
+### Phase 12: CLI And MCP Surfacing — ✅ DONE (examples + docs moved to the end-of-project batch)
 
-Goal: make the feature usable and explainable. Everything the async work added is currently visible
-only to someone reading the run log — the CLI's own workflow description, the MCP responses and the
-docs still describe a REST-only tool.
+Goal: make what Phases 8–11 built **visible**. Everything the async work added was reachable only by
+reading the run log — the CLI's own workflow description and the MCP responses still described a
+REST-only tool.
 
-**Read this first if you are picking the phase up:** Phases 8–11 are done and are what you are
-surfacing. The three facts that shape the work are (a) an async step can be targeted three ways
-(`channelPath`, `operationId`, `operationPath`) so nothing may assume `channelPath` is present,
-(b) direction comes from the *operation* when there is one and only otherwise from the step's
-`action`, and (c) which adapter a step runs on is decided by the AsyncAPI document's `servers`, not
-by anything in the Arazzo file.
+**What shipped:** a workflow description that reports the v1.1.0 and async facts (step 1), and a
+failure vocabulary carried beside every error message (step 2). Every new field is additive, and no
+step runs differently than before.
+
+**One behaviour DID change**, found by review while classifying failures: a **nested workflow that
+failed was silently swallowed**. A step calling another workflow records no status of its own, so
+the parent reported `workflow_complete` with no error at all — the failure vanished from `/run`, from
+MCP and from the graph. It now fails the calling step and the parent, carrying the child's own class.
+A workflow that used to report success will correctly report failure.
+
+Three things followed from that one fix, and are worth knowing before touching span timing again:
+
+- The calling step's span was being closed **before** the nested workflow ran, so it always said
+  "error" with no reason — and showed a *successful* nested call as a failed step. It is now closed
+  afterwards, with the real outcome.
+- The webview held **two workarounds** for that early span (deferring the step's end event, and
+  hiding the step's span from its Logs tab). Fixing the producer broke the first one — the deferral
+  waited for an event that now arrives earlier, leaving the node stuck on "running". Both are gone.
+- A failed workflow's span said only `"step failed"`. It now names the step and the reason, which is
+  what the calling step's log entry shows.
+
+**The two remaining steps moved out.** The project-wide example sweep and the user-facing
+documentation page are now in the end-of-project batch, after Phase 14 — see
+[Steps 3–4](#steps-34--examples-and-documentation--moved-to-the-end-of-project-batch) below for why.
+
+**The three facts that shaped the work**, worth keeping in mind for Phases 13–14: (a) an async step
+can be targeted three ways (`channelPath`, `operationId`, `operationPath`) so nothing may assume
+`channelPath` is present, (b) direction comes from the *operation* when there is one and only
+otherwise from the step's `action`, and (c) which adapter a step runs on is decided by the AsyncAPI
+document's `servers`, not by anything in the Arazzo file.
 
 ---
 
-#### Step 1 — CLI workflow details
+#### Step 1 — CLI workflow details — ✅ DONE
+
+**Shipped.** `GetWorkflowDetails` now reports the document level (`arazzoVersion`, `self`,
+`sourceDescriptions`), the v1.1.0 step fields as written (`channelPath`, `action`, `correlationId`,
+`timeout`, `dependsOn`), and the derived facts (`stepType`, `channel`, `action`, `adapter` /
+`adapterError`, `contentTypes`, `correlationIdLocations`). Additive: a REST step gains only
+`stepType` and keeps every key it had, asserted key-by-key in
+[details_test.go](../../arazzo-designer-cli/internal/runner/details_test.go).
+
+To keep the description and the run from ever disagreeing, `executor` gained two exported entry
+points used by both: `TransportForProtocol` / `TransportForSource` (the ONE protocol table, which
+`adapterFor` now switches on) and `ResolveAsyncTarget` (the resolver, split out of the StepExecutor
+method). Examples and a walkthrough live in
+[examples/async_test/phase12/step1_workflowInfo/](../../examples/async_test/phase12/step1_workflowInfo/README.md).
+
+> **Only the MCP `get_workflow_details` tool calls this** — there is no CLI subcommand for it, and
+> the visualizer never touches it (the graph parses the Arazzo file itself, via `arazzo/getModel`).
+
+---
 
 **File:** [runner.go](../../arazzo-designer-cli/internal/runner/runner.go), `GetWorkflowDetails`.
 
@@ -1398,48 +1458,119 @@ is missing.
 
 **Additive only.** Existing keys keep their names and types; new keys are omitted when empty.
 
-#### Step 2 — MCP responses
+#### Step 2 — MCP responses — ✅ DONE
 
 **File:** [server.go](../../arazzo-designer-cli/internal/mcpserver/server.go).
 
-- `detailsTool` (~line 312) delegates to `GetWorkflowDetails`, so **it inherits Step 1 for free** —
-  verify rather than duplicate.
-- `listTool` (~line 294): add each workflow's source types so a client can tell REST-only from
-  event-driven without a second call.
-- `handleRun` (~line 375) / `handleLastResult` (~line 474): async failures currently arrive as bare
-  strings. Keep the string, and add a structured field distinguishing the classes a client would act
-  on differently: `adapter_unsupported`, `connect_failed`, `receive_timeout`, `correlation_unresolved`,
-  `serialize_failed`. The runtime already produces distinct messages for each.
-- `server_run_test.go` exists — extend it to assert the old shape is untouched.
+- `detailsTool` — **verified, no code needed.** Its handler is exactly
+  `MarshalIndent(GetWorkflowDetails(id))`, so it inherited Step 1 in full. Confirmed end-to-end
+  through a live MCP server and through Copilot against examples 02, 05 and 06.
+- `listTool` — **DROPPED, deliberately.** See below.
+- **Failure classes — shipped.** [internal/failure](../../arazzo-designer-cli/internal/failure/failure.go)
+  is the one place the vocabulary lives. **Every runtime failure path carries one** — the plan's
+  original five plus five more the enumeration turned up:
 
-#### Step 3 — Examples
+  | class | situation |
+  |---|---|
+  | `adapter_unsupported` | the declared protocol has no adapter |
+  | `connect_failed` | the remote endpoint could not be reached — broker **or** HTTP |
+  | `receive_timeout` | nothing arrived before the timeout |
+  | `correlation_unresolved` | the `correlationId` expression produced no value |
+  | `serialize_failed` | the message could not be encoded or decoded |
+  | `target_unresolved` | points at something that does not exist (channel, operation, workflow) |
+  | `document_invalid` | the document itself is malformed |
+  | `criteria_unmet` | it all worked and `successCriteria` did not hold |
+  | `dependency_unmet` | the step never ran; a `dependsOn` prerequisite had not completed |
+  | `unsupported_feature` | valid per spec, not implemented (cross-document `dependsOn`) |
 
-`examples/async_test/` already holds Phase 1–11 fixtures. **Extend, do not duplicate.** Missing:
-a minimal v1.1.0 **OpenAPI-only** workflow (proving v1.1.0 costs a REST user nothing), and a
-**selector-object** example set (Phase 4 has `phase4_selectors/`; check coverage before adding).
-XPath examples must wait for the deferred XPath engine.
+  Three distinctions are deliberate and worth preserving. `target_unresolved` vs `document_invalid`
+  differ by WHERE the fix is — the referenced spec, or this file. `document_invalid` vs
+  `unsupported_feature` differ by whether the document is wrong at all: calling a correct file
+  invalid sends a user, or an assistant, chasing a problem that is not there. And `criteria_unmet`
+  separates a product regression from infrastructure, which is the single most useful split for a CI
+  report.
 
-Each example carries its expected outcome in a header comment and is listed in a `README.md` — follow
-the Phase 10/11 sets, whose headers quote runtime messages verbatim. **That verbatim quoting is a
-maintenance trap:** changing a runtime message staleifies every header quoting it. Grep the examples
-for the old text whenever you change a message.
+  The class is attached **where the failure is created**, never derived later from the message text —
+  otherwise rewording a message would silently change a class, which is the exact fragility the field
+  exists to remove. `adapter_select.go`, `adapter_ws.go`, `adapter_mqtt.go` (the connect only, since
+  `waitToken` also serves publish/subscribe) and `serializer.go` tag their own errors;
+  `async_executor.go` takes the producer's class via `failure.ClassOf(err)` rather than restating it,
+  and reads the receive timeout from the existing `ErrReceiveTimeout` **sentinel**, not from wording.
 
-#### Step 4 — Documentation
+  It rides on `StepResult.ErrorClass` → `WorkflowExecutionResult.ErrorClass` → `RunResponse.error_class`.
+  `createFailureResult` takes the class as a **variadic** parameter — which means the compiler cannot
+  require it, so a test does (below). A workflow that runs to completion with a failed step carries
+  the first failure's class up, and a failed dependency carries its own class rather than a wrapper
+  saying only "a dependency failed".
 
-A real page, not bullet points: REST vs AsyncAPI steps; `send` vs `receive` and where direction comes
-from; channels vs operations vs topics; **broker vs adapter** (the runner implements adapters, brokers
-are external); the serializer layer and content-type resolution; correlation and why a declared
-location matters. The Phase 10/11 sections of this plan are the source material.
+  Reported on all three paths a caller can see a failure through: `POST /run`, `GET /lastResult`
+  (inherits it from the cached response), and the per-workflow MCP tool — which prefixes it as
+  `Workflow failed [adapter_unsupported]: …`, because MCP reports a tool failure as a *message*, not
+  a structured body.
 
-#### Tests / acceptance
+  **HTTP status codes are untouched.** A failed workflow is still `200 OK`: the request succeeded,
+  the workflow did not. Reusing HTTP codes for domain failures was considered and rejected — they are
+  already spoken for on the transport axis, `receive_timeout` has no HTTP equivalent at all (504 means
+  an upstream did not answer a request; nothing sent one), and the MCP path has no HTTP status to use.
+  gRPC, JSON-RPC and every major API vendor keep the two axes separate for the same reason.
+- **Completeness is enforced by reading the source, not by running it.**
+  [coverage_test.go](../../arazzo-designer-cli/internal/failure/coverage_test.go) walks the AST of
+  `internal/runner` and `internal/runner/executor` and fails — with file and line — on any
+  `createFailureResult` call, or `StepResult`/`WorkflowExecutionResult` literal, that reports an error
+  with no class beside it. A behaviour test can only cover the paths someone thought to provoke; this
+  catches a new one on the day it is written. **It found three gaps the moment it was added**, one of
+  them a whole category (`dependsOn` gate failures).
+- Every class is also provoked from a **real** failure in
+  [failure_class_test.go](../../arazzo-designer-cli/internal/runner/executor/failure_class_test.go)
+  and [runner_phase7_test.go](../../arazzo-designer-cli/internal/runner/runner_phase7_test.go): a
+  kafka source, an unregisterable content type, a real timeout, an unresolvable `$inputs` expression,
+  a dial to port 1, a missing channel, a directionless step, a failing assertion, an ungated
+  prerequisite, a cross-document `dependsOn`.
+- `server_run_test.go` — extended. The old shape is pinned on the **wire**, not just the struct: a
+  400 response is marshalled and checked key-by-key for the absence of `error_class` and the presence
+  of everything that was there before.
+- One example per class in
+  [step2_errorLabels/](../../examples/async_test/phase12/step2_errorLabels/README.md), plus a
+  succeeding workflow as the regression check — eleven in all, none needing the internet.
 
-- Existing OpenAPI-only workflows list, describe and run **byte-identically** — this is the phase's
-  main risk, since it touches shared code paths.
-- `GetWorkflowDetails` reports the right `stepType` and adapter for all three targeting forms,
-  including an `operationId` that resolves to an AsyncAPI operation with no `channelPath`.
-- A kafka/unknown-protocol step reports its reason in details **without running**.
-- MCP output for an old workflow is unchanged; new fields appear only for async steps.
-- New examples parse, validate, and run to their documented outcome.
+> **Why `listTool` was dropped.** The stated benefit — telling REST-only from event-driven "without a
+> second call" — does not survive contact with the data. A workflow is not one source type:
+> `orderThenWait` in the step 1 examples has an OpenAPI step, an AsyncAPI step *and* a nested-workflow
+> step, so any aggregate is lossy and says only "there is some async in here somewhere". And the
+> second call is not saved: anything that picks a workflow from the list then calls
+> `get_workflow_details` anyway, because it needs the inputs and steps. Revisit only if a real client
+> needs to scan a many-workflow document without per-workflow calls.
+
+#### Steps 3–4 — Examples and documentation → **MOVED to the end-of-project batch**
+
+The phase's remaining two steps were the cross-cutting example sweep and the documentation page.
+Both are now in the [end-of-project cleanup batch](#known-issues--bugs-separate-from-the-v110-phases--fix-independently),
+because both are best written **once, at the end, against the finished system** rather than
+mid-flight:
+
+- Every later phase changes what the examples must show and what the documentation must say. Writing
+  them now guarantees rewriting them after Phases 13–14.
+- The example headers quote runtime messages **verbatim**, so any message change staleifies them.
+  The fewer times that set is written, the fewer times it goes stale.
+
+Each phase still ships its own examples with it — Phase 12's own are in
+[step1_workflowInfo/](../../examples/async_test/phase12/step1_workflowInfo/README.md) and
+[step2_errorLabels/](../../examples/async_test/phase12/step2_errorLabels/README.md). What moved is
+the **project-wide** sweep and the single user-facing page.
+
+#### Tests / acceptance — all met
+
+- ✅ Existing OpenAPI-only workflows list, describe and run **byte-identically** — the phase's main
+  risk, since it touched shared code paths. Pinned key-by-key in `details_test.go` (a REST step gains
+  only `stepType`) and on the wire in `server_run_test.go` (a 400 response grows no `error_class`).
+- ✅ `GetWorkflowDetails` reports the right `stepType` and adapter for all three targeting forms,
+  including an `operationId` that resolves to an AsyncAPI operation with no `channelPath` — the case
+  no text-only reader can get right.
+- ✅ A kafka/unknown-protocol step reports its reason in details **without running**, character-for-
+  character identical to the error the run produces.
+- ✅ MCP output for an old workflow is unchanged; new fields appear only where they have a value.
+- ✅ Examples parse and run to their documented outcome — verified end-to-end through `handleRun`
+  for all eleven of the step-2 set, and through a live MCP server and Copilot for step 1.
 
 ### Phase 13: Visualizer UI Enhancements — ❌ NOT STARTED (⚠️ needs TEAM CONFIRMATION first)
 
@@ -1461,6 +1592,22 @@ the UI direction is confirmed with the team — until then async steps render as
   renders `'running' | 'passed' | 'failed'` (running = `ThemeColors.PRIMARY`). Status colouring needs
   no work, here or in Phase 14.
 - **The properties panel** already shows Step Type, the AsyncAPI section and Depends On (Phase 8).
+- **A step's resolved type** — `arazzo/getModel` now annotates every step with `stepType`
+  (`openapi` / `asyncapi` / `arazzo` / `workflow`), resolved through the same operation index
+  Definition and Hover use ([definition.go](arazzo-designer-lsp/server/definition.go),
+  `resolveStepTargetType`), and the properties panel consumes it. **Done during Phase 12** because it
+  was a correctness bug, not a styling one: the panel derived the type from the Arazzo text alone,
+  which cannot decide a bare `operationId` — it names no source description, so with two or more
+  declared sources the panel fell through to `'OpenAPI'` and mislabelled every bare `operationId`
+  belonging to an AsyncAPI document. The old derivation remains as the fallback for what the server
+  cannot resolve (a remote source, an unindexed file, an operation nothing owns), and an unresolved
+  step is left unannotated rather than guessed at.
+  > Demonstrated by [`phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml`](../../examples/async_test/phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml):
+  > its `placeOrder` and `alsoEmit` steps are written identically — a bare `operationId`, no source
+  > named — and resolve to `openapi` and `asyncapi` respectively, which is exactly the shape the old
+  > panel got wrong (2+ sources, so it fell back to `OpenAPI` for both). Open it and read *Step Type*
+  > on each. Also covered in Go by
+  > [steptype_test.go](arazzo-designer-lsp/server/steptype_test.go).
 
 ---
 
@@ -1700,14 +1847,117 @@ The model/LSP work (Phases 1–2) is done, so an implementing AI should start at
 proceed 3 → 12. Phases 4 and 5 share the selector/expression service and are best done together;
 Phase 6 depends on Phase 4; Phase 7 is independent and can be parallelized with 4–6; Phases
 8–11 form the AsyncAPI runtime track and depend on 3 (resolution) + 4–5 (evaluation) + 9
-(adapter) before 10–11. Phase 12 closes out docs/samples; Phase 13 (visualizer UI, needs team
-confirmation) and Phase 14 (non-blocking async steps) are the last two — Phase 14 last of all, since
-it only becomes meaningful once Phase 11 provides a real broker to wait on.
+(adapter) before 10–11. Phase 12 surfaces all of it through the CLI and MCP; Phase 13 (visualizer UI,
+needs team confirmation) and Phase 14 (non-blocking async steps) are the last two — Phase 14 last of
+all, since it only becomes meaningful once Phase 11 provides a real broker to wait on.
+
+**The project-wide example sweep and the user-facing documentation page come after Phase 14**, in the
+end-of-project batch. They were Phase 12 steps 3–4 and moved deliberately: every later phase changes
+what they must say, and example headers quote runtime messages verbatim, so writing them mid-flight
+guarantees rewriting them. Each phase still ships its own examples with it — what moved is the
+cross-cutting sweep and the single user-facing page.
 
 ## Known Issues / Bugs (separate from the v1.1.0 phases — fix independently)
 
-> **End-of-project cleanup batch.** None of these are v1.1.0 phase work. Best tackled together at the
-> very end, after Phases 1–12, in one final pass: (1) the final XPath push (XPath selectors + `targetSelectorType: xpath`, see Phases 4/6), (2) the server-stop UI bug below, (3) executable `type: arazzo` source descriptions below, (4) the two remaining LSP validation blind spots below (goto target existence; $steps refs outside parameters), and (5) JSON line mapping in the LSP parser below.
+> **End-of-project cleanup batch.** Best tackled together at the very end, after Phases 1–14, in one
+> final pass: (1) the final XPath push (XPath selectors + `targetSelectorType: xpath`, see Phases 4/6), (2) the server-stop UI bug below, (3) executable `type: arazzo` source descriptions below, (4) the two remaining LSP validation blind spots below (goto target existence; $steps refs outside parameters), (5) JSON line mapping in the LSP parser below, (6) **the project-wide example sweep**, (7) **the user-facing documentation page** — those two moved out of Phase 12 — (8) **a nested workflow's spans should join the parent's trace**, and (9) **an unresolvable `channelPath` channel should be flagged in the editor**. See below.
+
+### Project-wide example sweep (was Phase 12 step 3)
+
+Every phase ships examples with it, so this is the **gap-filling pass**, not a rewrite. Deliberately
+last: each later phase changes what the set must show, and the headers quote runtime messages
+**verbatim** — so the fewer times the set is written, the fewer times it goes stale. When a runtime
+message changes, grep the examples for the old text.
+
+Known gaps as of Phase 12:
+
+- **A runnable v1.1.0 OpenAPI-only workflow**, proving v1.1.0 costs a REST user nothing.
+  `phase1/v110-openapi-new-fields.arazzo.yaml` looks like this but is **parse-only** — it points at
+  `https://api.example.com/openapi.yaml`, which does not resolve, so it proves parsing and nothing
+  else. A workflow that actually runs is genuinely missing.
+- **Selector objects** — `phase4_selectors/` already has 8 examples and a README. Verify coverage
+  before adding anything; the plan's original note assumed a gap that may not exist.
+- **XPath** — blocked on the deferred XPath engine (item 1 above). Do these in the same pass.
+- A **`target_unresolved` LSP diagnostic** would remove the need for one runtime example, see item 4.
+
+### User-facing documentation page (was Phase 12 step 4)
+
+A real page, not bullet points. Deliberately last, so it describes the finished system once instead
+of being rewritten after every phase.
+
+Topics, with the plan sections that are their source material:
+
+| topic | why it trips people up | source |
+|---|---|---|
+| REST vs AsyncAPI steps | how the tool decides which a step is | Phase 8 |
+| `send` vs `receive`, and where direction comes from | the **operation** wins over the step | Phase 8/9 |
+| channels vs operations vs topics | three words for adjacent things | Phase 8/11 |
+| **broker vs adapter** | the runner implements *adapters*; brokers are external systems | Phase 11 |
+| the serializer layer and content-type resolution | the step → document → `defaultContentType` → JSON chain | Phase 10 |
+| correlation, and why a declared location matters | the false positive it prevents | Phase 10 |
+| the failure vocabulary | what each `error_class` means and whether to retry | Phase 12 step 2 |
+
+The Phase 10/11 sections of this plan are ~370 lines of written material already — this is mostly
+reshaping internal notes into user-facing prose, not research.
+
+### A nested workflow's spans should join the parent's trace
+
+Running a workflow that calls another produces **two unrelated traces**, each with its own trace id
+and no parent link:
+
+```
+TRACE 8c4dc9ad                     TRACE 10501d07
+  workflow parentFails               workflow failingChild      <- parent = (none)
+    step   callFailingChild            step   boom
+```
+
+It should be one tree, the nested run sitting inside the step that called it:
+
+```
+workflow parentFails          start
+  step     callFailingChild   start
+    workflow failingChild     start
+      step     boom           start
+        message/http          start / end
+      step     boom           end
+    workflow failingChild     end
+  step     callFailingChild   end
+workflow parentFails          end
+```
+
+**Most of this already holds.** Phase 12 moved the calling step's span so it is closed *after* the
+nested run, so the step span already encloses the child's spans in TIME and in the right order — the
+sequence above is exactly what a run emits today. What is missing is only the identity: the child
+workflow mints a fresh trace id and sets no `ParentID`.
+
+The fix is to thread the calling step's trace id and span id into `executeNestedWorkflow`, and have
+the child's workflow span reuse that trace id with `ParentID` set to the calling step's span. It
+touches `ExecuteWorkflow`, which is exported, so it wants an internal variant or an explicit trace
+context rather than a signature change on the public method.
+
+**Not urgent.** Nothing is wrong today: both traces are individually correct and complete, and the
+webview does not use the tree at all (each workflow has its own graph, and spans are filtered by
+`workflow.id`). It shows up in an external trace viewer — Jaeger via `--otlp-endpoint` — where the
+nested run currently appears as a second, disconnected trace instead of part of the story.
+
+### An unresolvable `channelPath` channel is not flagged in the editor
+
+The validator checks that a `channelPath`'s **source description** exists and is `type: asyncapi`,
+but never that the **channel** it names exists inside that file. So
+
+```yaml
+channelPath: localBus#/channels/nosuchchannel
+```
+
+gets no squiggle — `localBus` is a real, correctly typed source, and the missing channel is only
+discovered when the workflow runs (as `target_unresolved`, see
+[step2_errorLabels/06](../../examples/async_test/phase12/step2_errorLabels/06-target-unresolved.arazzo.yaml)).
+
+The lookup this needs already exists: `lookupChannelInSources`
+([definition.go](arazzo-designer-lsp/server/definition.go)) powers Go-to-Definition and hover on
+`channelPath`. It is simply never wired into the validator. Catching it while typing is worth more
+than the runtime class that currently reports it, and belongs with the other LSP blind spots in
+item 4.
 
 ### BUG (HIGH PRIORITY): a reconnected MQTT client silently stops receiving
 

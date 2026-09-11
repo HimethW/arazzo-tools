@@ -1,0 +1,74 @@
+# Phase 12 / step 1 - Scenario 5: All THREE step types in one workflow.
+#
+# WHAT IT TESTS: that `stepType` separates the three kinds of step inside a single list, and that a
+# REST step sitting next to async steps still gains nothing. This is the shape a real event-driven
+# workflow has - call an API, wait for the event it causes - so it is the one to eyeball.
+#
+# EXPECTED (get_workflow_details, workflow `orderThenWait`):
+#   placeOrder    : stepType openapi  - and NO async keys whatsoever
+#   alsoEmit      : stepType asyncapi | channel arazzo/phase12/orders | action send | adapter mqtt
+#                   contentTypes ["application/json"]
+#                   correlationIdLocations ["$message.payload#/token"]
+#   waitForOrder  : stepType asyncapi | channel arazzo/phase12/orders | action receive | adapter mqtt
+#                   contentTypes ["application/json"]
+#                   correlationIdLocations ["$message.payload#/token"]
+#                   correlationId $inputs.token | timeout 5000 | dependsOn ["placeOrder"]
+#   handOff       : stepType workflow - resolved before anything else is considered, and carries
+#                   none of the async fields
+#
+# THE PAIR TO LOOK AT: `placeOrder` and `alsoEmit` are written IDENTICALLY - a bare operationId, no
+# source description named - and resolve to DIFFERENT types. With two sources declared, the Arazzo
+# file simply does not contain the answer: `getProducts` is in the OpenAPI document and
+# `publishOrder` is in the AsyncAPI one, and the only way to tell is to look inside them.
+#
+# That is also what this file demonstrates in the IDE. Click each step in the graph and read
+# "Step Type" in the properties panel: it says OpenAPI and AsyncAPI. Before the language server
+# resolved this (it now sends `stepType` on arazzo/getModel), the panel read only the Arazzo text,
+# could not decide a bare operationId once more than one source was declared, and fell back to
+# "OpenAPI" for both - labelling `alsoEmit` wrongly.
+
+arazzo: 1.1.0
+$self: ./05-mixed-steps.arazzo.yaml
+
+info:
+  title: "Phase 12 - mixed step types"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: catalog
+    url: ./catalog.openapi.yaml
+    type: openapi
+  - name: orderBus
+    url: ./orders.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: orderThenWait
+    summary: A REST call, the event it causes, then a nested workflow
+    steps:
+      - stepId: placeOrder
+        description: A bare operationId that resolves into the OPENAPI source
+        operationId: getProducts
+
+      - stepId: alsoEmit
+        description: The SAME bare form, resolving into the ASYNCAPI source instead
+        operationId: publishOrder
+
+      - stepId: waitForOrder
+        description: Waits for the matching event on the order channel
+        channelPath: orderBus#/channels/orders
+        action: receive
+        correlationId: $inputs.token
+        timeout: 5000
+        dependsOn:
+          - placeOrder
+
+      - stepId: handOff
+        description: Hands off to another workflow in this document
+        workflowId: localOnly
+
+  - workflowId: localOnly
+    summary: The nested target of handOff
+    steps:
+      - stepId: noop
+        operationId: getProducts

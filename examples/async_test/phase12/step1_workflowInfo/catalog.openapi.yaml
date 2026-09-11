@@ -1,0 +1,27 @@
+# A tiny REST API. Used by the REST-only and mixed examples to prove that describing a v1.1.0
+# document costs an OpenAPI step nothing: it gains no async keys and keeps every key it had.
+openapi: 3.0.3
+info:
+  title: Catalog API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com
+paths:
+  /products:
+    get:
+      operationId: getProducts
+      responses:
+        '200':
+          description: OK
+  /products/{id}:
+    get:
+      operationId: getProduct
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK

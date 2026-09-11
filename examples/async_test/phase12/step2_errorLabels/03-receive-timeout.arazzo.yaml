@@ -1,0 +1,32 @@
+# Phase 12 / step 2 - Scenario 3: receive_timeout
+#
+# WHAT IT TESTS: the subscription was live and nothing arrived. Note there is no send step - the
+# workflow only listens, on an in-memory channel nobody publishes to, for 500ms.
+#
+# EXPECTED  POST /run/waitForever  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "receive_timeout"
+#   "error":       receive on channel "local/events" timed out after 500ms: no message arrived
+#
+# RETRY? Maybe - with a longer timeout, or once the sender is known to have sent. This is the class
+# that most needs distinguishing: to a text-matching client it looks like any other failure, but it
+# is the only one where "wait longer" is the right response.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - receive_timeout"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: waitForever
+    summary: Waits on a channel nobody publishes to
+    steps:
+      - stepId: await
+        channelPath: localBus#/channels/events
+        action: receive
+        timeout: 500

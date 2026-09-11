@@ -1,0 +1,39 @@
+# Phase 12 / step 2 - Scenario 5: serialize_failed
+#
+# WHAT IT TESTS: the message cannot be turned into bytes. The channel declares `application/avro`,
+# which the runner RECOGNISES but has not implemented - it is a deliberate stub awaiting real
+# schema-registry support (see serializer.go). So the serializer is selected successfully and then
+# fails when asked to encode.
+#
+# That two-stage behaviour is intentional: reporting "unsupported content type" at selection time
+# would be a lie, because the runner does know what Avro is.
+#
+# EXPECTED  POST /run/avroSend  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "serialize_failed"
+#   "error":       send on channel "records": could not serialize payload: avro serialization
+#                  (application/avro) is not supported yet
+#
+# RETRY? No. Either the document names a format the runner cannot produce, or the payload is not
+# encodable. Both need a change, not a repeat.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - serialize_failed"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: avroBus
+    url: ./avro.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: avroSend
+    summary: Sends a message the runner cannot encode
+    steps:
+      - stepId: emit
+        channelPath: avroBus#/channels/records
+        action: send
+        requestBody:
+          payload:
+            recordId: "r-1"

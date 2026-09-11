@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/wso2/arazzo-designer-cli/internal/failure"
 )
 
 // Serializer converts a logical payload to/from wire bytes for one family of content types.
@@ -79,9 +81,9 @@ func (r *SerializerRegistry) For(contentType string) (Serializer, error) {
 	// different error — the message would be pointing at a dead end.
 	usable, stubbed := r.supported()
 	if len(stubbed) == 0 {
-		return nil, fmt.Errorf("no serializer registered for content type %q (supported: %s)", ct, strings.Join(usable, ", "))
+		return nil, failure.Errorf(failure.SerializeFailed, "no serializer registered for content type %q (supported: %s)", ct, strings.Join(usable, ", "))
 	}
-	return nil, fmt.Errorf("no serializer registered for content type %q (supported: %s; recognized but not yet implemented: %s)",
+	return nil, failure.Errorf(failure.SerializeFailed, "no serializer registered for content type %q (supported: %s; recognized but not yet implemented: %s)",
 		ct, strings.Join(usable, ", "), strings.Join(stubbed, ", "))
 }
 

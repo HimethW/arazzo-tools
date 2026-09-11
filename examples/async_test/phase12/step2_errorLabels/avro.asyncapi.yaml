@@ -1,0 +1,13 @@
+# A channel that declares Avro. The runner RECOGNISES application/avro but has not implemented it -
+# it is a deliberate stub awaiting schema-registry support - so selecting it succeeds and encoding
+# with it fails -> serialize_failed.
+asyncapi: 3.0.0
+info:
+  title: Avro Bus
+  version: 1.0.0
+channels:
+  records:
+    address: records
+    messages:
+      record:
+        contentType: application/avro

@@ -1,0 +1,35 @@
+# Phase 12 / step 2 - Scenario 2: connect_failed
+#
+# WHAT IT TESTS: the adapter exists and is correct, but the broker cannot be reached. The server is
+# 127.0.0.1:1 - nothing listens on port 1, so the connection is REFUSED instantly. No internet, no
+# waiting, and no dependence on anything outside your machine.
+#
+# EXPECTED  POST /run/deadBroker  ->  HTTP 200
+#   "status":      "failed"
+#   "error_class": "connect_failed"
+#   "error":       send on channel "orders" failed: websocket connect to ws://127.0.0.1:1/orders failed: ...
+#
+# RETRY? Yes - this is the one class that is commonly transient. A broker restarting, a network blip
+# and a DNS hiccup all land here. Compare with example 01: identical from the outside (a send that
+# failed), opposite advice.
+
+arazzo: 1.1.0
+info:
+  title: "Phase 12 - connect_failed"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: deadBus
+    url: ./dead.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: deadBroker
+    summary: Sends to a broker that refuses the connection
+    steps:
+      - stepId: emit
+        channelPath: deadBus#/channels/orders
+        action: send
+        requestBody:
+          payload:
+            orderId: "A-1"

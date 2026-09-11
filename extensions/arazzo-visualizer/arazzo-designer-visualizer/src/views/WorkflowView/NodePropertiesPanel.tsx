@@ -300,9 +300,9 @@ export function NodePropertiesPanel({ node, workflow, definition, traceSpans, fo
     const openWorkflowId = workflow?.workflowId;
     const filteredSpans = node.type === 'stepNode'
         ? (() => {
-            // Nested-workflow step: show the called workflow's own spans so the logs
-            // reflect the actual execution status/inputs/outputs of the nested workflow,
-            // rather than the early-emitted step:end(ERROR) span from the Go runner.
+            // Nested-workflow step: show the called workflow's own spans, which carry its
+            // status, inputs and outputs. The step does nothing else, so its own span would say
+            // the same thing twice — one run should read as one entry.
             const nestedWorkflowId = (nodeData as any).workflowId as string | undefined;
             if (nestedWorkflowId) {
                 return allSpans.filter(s =>
@@ -884,7 +884,14 @@ export function NodePropertiesPanel({ node, workflow, definition, traceSpans, fo
 
     const sections: JSX.Element[] = [];
 
-    // Step kind — classify the step's target:
+    // Step kind — the language server RESOLVES this for us (`stepType` on the model it returns) by
+    // looking the target up inside the declared specs, so prefer it whenever it is present. The
+    // fallback below reads only the Arazzo text and therefore has to guess: a bare `operationId`
+    // names no source description, so with more than one declared source it cannot know which one
+    // owns the operation. Keep it for the cases the server leaves unresolved — a remote source, a
+    // file not yet indexed, an operation that exists nowhere.
+    //
+    // Fallback classification:
     //  - channelPath OR action -> AsyncAPI (action only applies to async steps)
     //  - workflowId            -> Workflow (nested)
     //  - operationId scoped "$sourceDescriptions.<name>.*" -> that source's declared type
@@ -918,24 +925,30 @@ export function NodePropertiesPanel({ node, workflow, definition, traceSpans, fo
         return ref.startsWith(prefix) ? ref.slice(prefix.length).split('.')[0] : ref;
     };
 
-    let stepKind: string | undefined;
-    if (stepData.channelPath || stepData.action) {
-        stepKind = 'AsyncAPI';
-    } else if (stepData.workflowId) {
-        stepKind = 'Workflow';
-    } else if (stepData.operationId) {
-        const opId = String(stepData.operationId);
-        if (opId.startsWith('$sourceDescriptions.')) {
-            const name = opId.slice('$sourceDescriptions.'.length).split('.')[0];
-            stepKind = sourceTypeByName(name) ?? 'OpenAPI';
-        } else {
-            // A bare operationId names no source, so it can only be attributed when the document
-            // declares exactly ONE source. Filtering to typed sources first would mis-attribute the
-            // step whenever a second, untyped source could equally own the operation.
-            stepKind = (sourceDescriptions.length === 1 ? mapSourceType(sourceDescriptions[0].type) : undefined) ?? 'OpenAPI';
+    // What the server resolved, when it could resolve anything.
+    let stepKind: string | undefined = stepData.stepType === 'workflow'
+        ? 'Workflow'
+        : mapSourceType(stepData.stepType);
+
+    if (!stepKind) {
+        if (stepData.channelPath || stepData.action) {
+            stepKind = 'AsyncAPI';
+        } else if (stepData.workflowId) {
+            stepKind = 'Workflow';
+        } else if (stepData.operationId) {
+            const opId = String(stepData.operationId);
+            if (opId.startsWith('$sourceDescriptions.')) {
+                const name = opId.slice('$sourceDescriptions.'.length).split('.')[0];
+                stepKind = sourceTypeByName(name) ?? 'OpenAPI';
+            } else {
+                // A bare operationId names no source, so it can only be attributed when the document
+                // declares exactly ONE source. Filtering to typed sources first would mis-attribute
+                // the step whenever a second, untyped source could equally own the operation.
+                stepKind = (sourceDescriptions.length === 1 ? mapSourceType(sourceDescriptions[0].type) : undefined) ?? 'OpenAPI';
+            }
+        } else if (stepData.operationPath) {
+            stepKind = sourceTypeByName(sourceNameFromOperationPath(String(stepData.operationPath))) ?? 'OpenAPI';
         }
-    } else if (stepData.operationPath) {
-        stepKind = sourceTypeByName(sourceNameFromOperationPath(String(stepData.operationPath))) ?? 'OpenAPI';
     }
 
     // General Section (stepId, step type, description)

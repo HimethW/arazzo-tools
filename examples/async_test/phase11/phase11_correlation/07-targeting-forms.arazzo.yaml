@@ -75,9 +75,10 @@ workflows:
           payload:
             orderId: "op"
 
+      # ...and by operationPath, so the SEND side covers all three forms too. Like emitOp it declares
+      # no `action` - the operation's own `action: send` supplies the direction.
       - stepId: emitPath
-        channelPath: orderBus#/channels/located
-        action: send
+        operationPath: orderBus#/operations/publishLocated
         parameters:
           - name: correlationId
             in: header
