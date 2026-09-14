@@ -358,7 +358,12 @@ export function WorkflowView(props: WorkflowViewProps) {
                     // Update node status
                     const updated = prev.map(node => {
                         if (node.id === stepId && node.type === 'stepNode') {
-                            const traceStatus: StepTraceStatus = { state, durationMs: event.duration_ms };
+                            const traceStatus: StepTraceStatus = {
+                                state,
+                                durationMs: event.duration_ms,
+                                // Refused by its dependsOn gate, so it never ran - the runner's dependency_unmet class.
+                                blocked: event.attributes?.['error.type'] === 'dependency_unmet',
+                            };
                             return { ...node, data: { ...node.data, traceStatus } };
                         }
                         return node;

@@ -147,6 +147,8 @@ export interface WebviewTraceEvent {
 export interface StepTraceStatus {
     state: 'running' | 'passed' | 'failed';
     durationMs?: number;
+    /** Failed without running: a `dependsOn` prerequisite did not succeed. */
+    blocked?: boolean;
 }
 
 export const onTraceEvent: NotificationType<WebviewTraceEvent> = { method: 'onTraceEvent' };
