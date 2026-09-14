@@ -69,7 +69,10 @@ export namespace NodeStyles {
         border: ${(props: NodeStyleProp) => (props.disabled ? 2 : C.NODE_BORDER_WIDTH)}px;
         border-style: ${(props: NodeStyleProp) => (props.disabled || props.blocked ? 'dashed' : 'solid')};
         border-color: ${(props: NodeStyleProp) => {
-            // Trace state takes highest priority for border color
+            // A flash is a momentary "look here" - a goto/retry target, or a step the hovered one
+            // depends on - so it shows over everything else while it lasts.
+            if (props.flash) return ThemeColors.SECONDARY;
+            // Then the trace state, over everything below
             if (props.traceState === 'passed') return (ThemeColors as any).TESTING_PASSED;
             if (props.traceState === 'failed') return ThemeColors.ERROR;
             if (props.traceState === 'running') return ThemeColors.PRIMARY;
@@ -78,13 +81,11 @@ export namespace NodeStyles {
             }
             return props.hasError
                 ? ThemeColors.ERROR
-                : props.flash
+                : props.isSelected && !props.disabled
                     ? ThemeColors.SECONDARY
-                    : props.isSelected && !props.disabled
+                    : props.hovered && !props.disabled && !props.readOnly
                         ? ThemeColors.SECONDARY
-                        : props.hovered && !props.disabled && !props.readOnly
-                            ? ThemeColors.SECONDARY
-                            : ThemeColors.OUTLINE_VARIANT;
+                        : ThemeColors.OUTLINE_VARIANT;
         }};
         border-radius: 10px;
         cursor: ${(props: NodeStyleProp) => (props.readOnly ? 'default' : 'pointer')};
