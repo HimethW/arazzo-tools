@@ -67,6 +67,35 @@ func NewStepExecutor(
 	}
 }
 
+// emitStepStart opens a step's span and returns its id and start time, for emitStepEnd to close.
+func (se *StepExecutor) emitStepStart(state *models.ExecutionState, stepID string) (string, time.Time) {
+	spanID := telemetry.GenerateSpanID()
+	start := time.Now()
+	se.Sink.Send(telemetry.TraceEvent{
+		Lifecycle:  telemetry.LifecycleStart,
+		Context:    telemetry.SpanContext{TraceID: state.TraceID, SpanID: spanID},
+		ParentID:   state.WorkflowSpanID,
+		Name:       stepID,
+		Kind:       telemetry.OTelSpanKindInternal,
+		ArazzoKind: telemetry.SpanKindStep,
+		StartTime:  start,
+		StatusCode: telemetry.SpanStatusUnset,
+		Attributes: map[string]string{
+			"step.id":     stepID,
+			"workflow.id": state.WorkflowID,
+		},
+	})
+	return spanID, start
+}
+
+// ReportBlockedStep records a step that never ran - its dependsOn gate failed - as a span that opens
+// and closes at once with the failure. Without it the step sends no span at all, so the graph leaves
+// its node untouched and the logs have nothing to say about why the run stopped there.
+func (se *StepExecutor) ReportBlockedStep(state *models.ExecutionState, result *models.StepResult) {
+	spanID, start := se.emitStepStart(state, result.StepID)
+	se.emitStepEnd(state, result.StepID, spanID, start, result)
+}
+
 // emitStepEnd closes a step's span with the outcome the result carries. Shared so a nested workflow
 // call, whose span cannot be closed inside ExecuteStep, is reported exactly like every other step.
 func (se *StepExecutor) emitStepEnd(state *models.ExecutionState, stepID, spanID string, start time.Time, result *models.StepResult) {
@@ -83,6 +112,9 @@ func (se *StepExecutor) emitStepEnd(state *models.ExecutionState, stepID, spanID
 	}
 	if result.StatusCode > 0 {
 		attrs["http.status_code"] = fmt.Sprintf("%d", result.StatusCode)
+	}
+	if result.ErrorClass != "" {
+		attrs["error.type"] = result.ErrorClass // OpenTelemetry's attribute for the class of error a span ended with
 	}
 	// Include extracted step outputs in the end span
 	if stData, ok := state.StepsData[stepID].(map[string]interface{}); ok {
@@ -125,23 +157,7 @@ func (se *StepExecutor) ExecuteStep(step map[string]interface{}, workflow map[st
 	stepID, _ := step["stepId"].(string)
 	log.Printf("=== Executing step: %s ===", stepID)
 
-	// --- Telemetry: step start ---
-	stepSpanID := telemetry.GenerateSpanID()
-	stepStart := time.Now()
-	se.Sink.Send(telemetry.TraceEvent{
-		Lifecycle:  telemetry.LifecycleStart,
-		Context:    telemetry.SpanContext{TraceID: state.TraceID, SpanID: stepSpanID},
-		ParentID:   state.WorkflowSpanID,
-		Name:       stepID,
-		Kind:       telemetry.OTelSpanKindInternal,
-		ArazzoKind: telemetry.SpanKindStep,
-		StartTime:  stepStart,
-		StatusCode: telemetry.SpanStatusUnset,
-		Attributes: map[string]string{
-			"step.id":     stepID,
-			"workflow.id": state.WorkflowID,
-		},
-	})
+	stepSpanID, stepStart := se.emitStepStart(state, stepID)
 
 	// Helper to emit step end span and return the result
 	endStep := func(result *models.StepResult) *models.StepResult {

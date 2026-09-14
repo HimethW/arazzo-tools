@@ -413,6 +413,8 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 		if depErr := r.checkStepDependencies(step, state); depErr != nil {
 			log.Printf("Step %s blocked by dependsOn: %v", stepID, depErr)
 			state.StepsStatus[stepID] = models.StepStatusFailure
+			depClass := string(failure.ClassOf(depErr))
+			r.StepExecutor.ReportBlockedStep(state, &models.StepResult{StepID: stepID, Error: depErr.Error(), ErrorClass: depClass})
 			endWorkflow(telemetry.SpanStatusError, depErr.Error())
 			return &models.WorkflowExecutionResult{
 				Status:      models.WorkflowStatusError,
@@ -420,7 +422,7 @@ func (r *ArazzoRunner) ExecuteWorkflow(workflowID string, inputs map[string]inte
 				StepOutputs: r.collectStepOutputs(state),
 				Inputs:      inputs,
 				Error:       depErr.Error(),
-				ErrorClass:  string(failure.ClassOf(depErr)),
+				ErrorClass:  depClass,
 			}
 		}
 
