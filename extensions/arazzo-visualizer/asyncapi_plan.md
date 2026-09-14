@@ -529,8 +529,8 @@ failed or unknown dependency. Both were kept as-is; only the missing cycle guard
 - The LSP's "dependency cannot have completed by document/flow order" check is only partly there — a
   forward reference produces a **warning** (*declared after this step … unless a 'goto' runs it
   first*), not a full reachability analysis.
-- **Visualization of `dependsOn` edges and blocked-step state is not done** — it needs a distinct graph
-  edge and a blocked state on the gated step. Parked in Phase 13 (needs team sign-off).
+- **Visualization of `dependsOn`** — done in Phase 13 as a hover highlight rather than edges, and a
+  red-dashed border on a step its gate refused.
 
 <details><summary>Original design (as implemented) — kept for reference</summary>
 
@@ -1572,25 +1572,26 @@ the **project-wide** sweep and the single user-facing page.
 - ✅ Examples parse and run to their documented outcome — verified end-to-end through `handleRun`
   for all eleven of the step-2 set, and through a live MCP server and Copilot for step 1.
 
-### Phase 13: Visualizer UI Enhancements — ❌ NOT STARTED (⚠️ needs TEAM CONFIRMATION first)
+### Phase 13: Visualizer UI Enhancements — 🟡 IN PROGRESS (steps 2–3 implemented, visual check pending; step 1 waits on logo assets)
 
-Goal: the graph-appearance changes deliberately pulled OUT of Phase 8. Do these LAST, and only after
-the UI direction is confirmed with the team — until then async steps render as normal steps.
+Goal: the graph-appearance changes deliberately pulled OUT of Phase 8 — make an async workflow look
+like one on the canvas, not only in the properties panel.
 
-> **⚠️ GATE — do not start without a decision.** Every step below depends on the visual direction:
-> the icon/colour language for `send` vs `receive`, whether source-type badges sit on nodes or only in
-> the overview, and how a `dependsOn` edge is drawn so it is not mistaken for control flow. Implementing
-> first and restyling later means redoing the graph work. **Get sign-off, then start.**
+**Design agreed with the team (2026-09-11)** — replaces the earlier open questions (send/receive
+styling, source badges, `dependsOn` edges, a separate blocked colour):
+1. **One icon per step kind** — the OpenAPI, AsyncAPI or Arazzo logo on the node.
+2. **Red dashed for a step that never ran** because a `dependsOn` prerequisite did not succeed; red
+   solid stays for a step that ran and failed. Red still means "did not succeed" — the dash only says
+   which red step is the cause. The reason is in the logs.
+3. **`dependsOn` shown on hover, not as lines** — hovering a step highlights the steps it depends on in
+   the secondary colour. Retry/goto already draw lines on hover, so more lines would be ambiguous and
+   clutter the graph.
 
-**What already exists (do not rebuild it):**
-- **`arazzo/getSourceInfo`** — [server.go:447](arazzo-designer-lsp/server/server.go), backed by the
-  per-document registry in [source_registry.go](arazzo-designer-lsp/server/source_registry.go). It
-  returns `{sources, async, rest}` with each source's declared type, the type the file **actually** is,
-  and a `TypeMismatch()` flag. It was built in Phase 8 and **nothing consumes it** — it is the data
-  source for badges, already done.
-- **`traceState`** — [BaseNodeWidget.tsx:46](arazzo-designer-visualizer/src/views/WorkflowView/../../components/nodes/BaseNode/BaseNodeWidget.tsx)
-  renders `'running' | 'passed' | 'failed'` (running = `ThemeColors.PRIMARY`). Status colouring needs
-  no work, here or in Phase 14.
+**What already exists (reused, not rebuilt):**
+- **`traceState`** — [BaseNodeWidget.tsx](arazzo-designer-visualizer/src/components/nodes/BaseNode/BaseNodeWidget.tsx)
+  renders `'running' | 'passed' | 'failed'` (running = `ThemeColors.PRIMARY`). Step 2 adds only a
+  dashed variant of `'failed'`.
+- **`flash`** — the border highlight a retry/goto target gets on click. Step 3 reuses it.
 - **The properties panel** already shows Step Type, the AsyncAPI section and Depends On (Phase 8).
 - **A step's resolved type** — `arazzo/getModel` now annotates every step with `stepType`
   (`openapi` / `asyncapi` / `arazzo` / `workflow`), resolved through the same operation index
@@ -1611,57 +1612,90 @@ the UI direction is confirmed with the team — until then async steps render as
 
 ---
 
-#### Step 1 — Consume `arazzo/getSourceInfo`
+#### Step 1 — Step icons by kind — ⏸ WAITING ON LOGO ASSETS
 
-Add the LSP request to the visualizer's client and hold the result alongside the workflow model.
-The method is additive and `arazzo/getModel` is unchanged, so nothing existing is affected. Refresh on
-the same events that re-index (open, change, save) or badges go stale when a `sourceDescription` is
-added.
+Draw the logo for what the step targets: OpenAPI, AsyncAPI or Arazzo. The Arazzo logo covers both a
+workflow in another Arazzo document and a nested workflow in this one.
 
-#### Step 2 — Source-type badges + `$self` in the overview
+- **Take the kind from the panel's existing derivation, not a second copy.** Move the Step Type logic
+  out of [NodePropertiesPanel.tsx](arazzo-designer-visualizer/src/views/WorkflowView/NodePropertiesPanel.tsx)
+  into a shared helper that both the panel and the node factory call, so the icon and the panel's
+  *Step Type* cannot disagree. It already prefers the LSP's resolved `stepType`.
+- Every step's icon is set in [NodeFactoryVisitorVertical_v2.ts](arazzo-designer-visualizer/src/visitors/NodeFactoryVisitorVertical_v2.ts)
+  (`fw-bi-arrow-outward` today), and `BaseNodeWidget` renders only icon-font classes — it needs to
+  render an image too. Keep the arrow for a step whose kind is unknown.
+- **Assets** go in `arazzo-designer-visualizer/src/resources/icons/` as `openapi.svg`, `asyncapi.svg`
+  and `arazzo.svg` — the folder and import pattern `success.svg`/`fail.svg` already use. The Arazzo
+  logo can be the extension's own ([light-icon.svg](arazzo-designer-extension/assets/light-icon.svg):
+  orange, transparent background). The OpenAPI and AsyncAPI logos are not in the repo. Use each
+  project's icon mark rather than its wordmark (it renders at 24px), in a variant visible on both
+  light and dark themes.
 
-Render OpenAPI / AsyncAPI / Arazzo per source, and `$self` where the document identity belongs.
-**Surface `TypeMismatch()`** — a source declared `asyncapi` whose file is actually OpenAPI is a real
-authoring bug the registry already detects and nothing reports today.
+#### Step 2 — Blocked steps render red dashed — ✅ IMPLEMENTED (visual check pending)
 
-#### Step 3 — Distinguish `send` / `receive` steps
+**What was wrong.** A step refused by its `dependsOn` gate sent no span at all: the gate in
+[runner.go](../../arazzo-designer-cli/internal/runner/runner.go) returns before `ExecuteStep`, which is
+where every step span is opened. The webview sets a node's state from span events, so the node was
+left untouched — not red, nothing — and its Logs tab was empty.
 
-**File:** `components/nodes/BaseNode/BaseNodeWidget.tsx` (styling) and
-[graphBuilder.ts](arazzo-designer-visualizer/src/views/WorkflowView/graphBuilder.ts)
-(`buildGraphFromWorkflow`, the single entry point that turns a workflow into nodes and edges).
+**Fix, in three small pieces:**
+- **The blocked step reports itself.** `ReportBlockedStep` ([step_executor.go](../../arazzo-designer-cli/internal/runner/executor/step_executor.go))
+  opens and closes the step's span at once, carrying the gate's error. Opening a span was pulled out of
+  `ExecuteStep` into `emitStepStart` so both share it, beside the existing `emitStepEnd`.
+- **Every failed step's span carries its class** as `error.type` — OpenTelemetry's attribute for the
+  class of error an operation ended with. The span had the message but not the class, and the webview
+  must not match on error text. This exposes all ten Phase 12 labels to the webview, not just this one.
+- **The webview** sets `blocked` on the node's trace status when `error.type` is `dependency_unmet`
+  ([WorkflowView.tsx](arazzo-designer-visualizer/src/views/WorkflowView/WorkflowView.tsx); the field
+  is on `StepTraceStatus` in [state-machine-types.ts](arazzo-designer-core/src/state-machine-types.ts)),
+  and `BaseNodeWidget` draws a blocked node's border dashed. `state` stays `'failed'`, so the fail
+  icon, the edge highlight and *view logs* behave exactly as for any other failure.
 
-Direction must come from the same resolution the runtime uses — **the operation's `action` wins over
-the step's** — so a step whose `operationId` targets a `receive` operation renders as a receive even
-if it wrote `action: send`. The step text alone is not enough; use the resolved value the LSP already
-computes (`resolveStepAsyncAction`) rather than reading `step.action`.
+**Test:** `TestBlockedStepIsReportedWithItsClass` ([runner_phase7_test.go](../../arazzo-designer-cli/internal/runner/runner_phase7_test.go))
+— a failing step hands on to one that depends on it. The blocked step's span must exist, say
+`dependsOn` and carry `dependency_unmet`; the failing step's must carry its own class. Verified
+non-vacuous: removing `ReportBlockedStep` fails it (*no end span for step "gated"*), and removing the
+attribute fails it on both classes.
 
-#### Step 4 — Step-level `dependsOn` edges
+#### Step 3 — `dependsOn` highlighted on hover — ✅ IMPLEMENTED (visual check pending)
 
-Also in `buildGraphFromWorkflow`. The hard requirement: **must not disturb the existing
-success/failure/goto edges**, which carry execution flow.
+Hovering a step flashes the border of each step it depends on in `ThemeColors.SECONDARY` (VS Code's
+`contrastActiveBorder`, falling back to the lightbulb colour). It reuses `flash`, so it is one handler
+in [WorkflowView.tsx](arazzo-designer-visualizer/src/views/WorkflowView/WorkflowView.tsx)
+(`flashDependencies`, wired to `onNodeMouseEnter`/`onNodeMouseLeave`) and no new node state. Only a
+bare `stepId` names a step in this graph; a `$workflows.<id>.steps.<id>` reference points into another
+workflow and matches no node.
 
-The subtlety worth stating in the UI itself: a `dependsOn` edge is **not** control flow. Phase 7
-established `dependsOn` is a completion *gate* with no reordering — execution stays in document order.
-Drawing it like a flow edge will read as "this runs next", which is wrong. Style it distinctly
-(dashed, different colour, an explicit label).
+**One deliberate side effect.** With `MODERN = false` (the current setting) the border-colour code
+returned before it reached `flash`, so a flash was only a faint glow with no colour, and could never
+show on a node that already had a run colour. `flash` now wins the border colour while it lasts. That
+is what makes the highlight visible after a run — and it makes the existing retry/goto target flash
+visible for the first time.
 
-Workflow-level `dependsOn` edges: confirm with the team whether to draw them at all — none exist in
-any current example.
+#### Not in this phase
 
-#### Step 5 — Blocked / gate-failed state
-
-A step whose `dependsOn` gate fails currently just fails. Give it a distinct state so "I could not run
-because a prerequisite did not succeed" is visibly different from "I ran and failed". The runtime
-already produces a distinct message (`dependsOn '<x>', which has not completed successfully`).
+- **`send` vs `receive` styling** — dropped. The graph shows what a step *is*, not its verb; REST steps
+  do not distinguish GET from POST either. It may return in Phase 14, where receive steps run in the
+  background — as part of that design, not as styling.
+- **Source-type badges / consuming `arazzo/getSourceInfo`** — superseded by per-step icons, which key
+  off `stepType`. `getSourceInfo` stays unconsumed, and the `TypeMismatch()` it reports is still not
+  surfaced anywhere (already noted under Phase 8).
+- **`dependsOn` edges** — replaced by the hover highlight.
+- **Workflow-level `dependsOn`** — not drawn; no example uses it.
 
 #### Tests / acceptance
 
-- **Old workflows render byte-identically** when no async steps and no `dependsOn` are present.
-- `dependsOn` edges appear without breaking success/failure/goto edges — check a workflow that has both.
-- Badges match the declared types, and a deliberate type mismatch is surfaced.
-- A `send`/`receive` step targeted by `operationId` (no `action` on the step) renders with the
-  operation's direction.
-- Execution highlight is unchanged (still sequential — Phase 7 added no reordering).
+- ⏳ A `dependsOn`-blocked step renders red dashed; a step that ran and failed renders red solid.
+- ⏳ Hovering a step with `dependsOn` highlights its prerequisites; hovering one without it changes
+  nothing.
+- ⏳ A graph with no `dependsOn` and no failures renders as before.
+- ⏸ Each step shows the logo for its kind, matching the panel's *Step Type*.
+- ✅ Both Go modules build, vet and test clean; the visualizer type-checks and bundles.
+- **Examples:** [`examples/async_test/phase13/`](../../examples/async_test/phase13/README.md) — three
+  hover scenarios (one dependency; several and chained; async with a cross-workflow reference) and three
+  red-dash scenarios (prerequisite failed; prerequisite skipped by `goto`; async prerequisite timed out),
+  all against real endpoints (Toolshop, WebSocket echo). Each was run end-to-end and produced the step
+  outcomes its header documents; none raises an editor error or warning.
 
 ### Phase 14 (FINAL): Non-Blocking Async Steps — ❌ NOT STARTED
 
@@ -1848,7 +1882,7 @@ proceed 3 → 12. Phases 4 and 5 share the selector/expression service and are b
 Phase 6 depends on Phase 4; Phase 7 is independent and can be parallelized with 4–6; Phases
 8–11 form the AsyncAPI runtime track and depend on 3 (resolution) + 4–5 (evaluation) + 9
 (adapter) before 10–11. Phase 12 surfaces all of it through the CLI and MCP; Phase 13 (visualizer UI,
-needs team confirmation) and Phase 14 (non-blocking async steps) are the last two — Phase 14 last of
+design agreed 2026-09-11) and Phase 14 (non-blocking async steps) are the last two — Phase 14 last of
 all, since it only becomes meaningful once Phase 11 provides a real broker to wait on.
 
 **The project-wide example sweep and the user-facing documentation page come after Phase 14**, in the
