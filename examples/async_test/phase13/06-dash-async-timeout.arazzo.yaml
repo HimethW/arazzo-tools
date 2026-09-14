@@ -1,0 +1,67 @@
+# Phase 13 - Red-dash scenario 3: ASYNC steps, and the run stops at the refused step.
+# (ends in error on purpose, after about 3 seconds)
+#
+# WHAT IT SHOWS: the same two reds with async steps, and that a refused step ends the run. `shout`
+# sends a frame to the public WebSocket echo server. `awaitReply` waits for a reply carrying a token
+# nobody sends, so it times out - it ran and failed: SOLID red. Its onFailure hands on to `confirm`,
+# which depends on it: refused, DASHED red. A refused step is a hard error, so `wrapUp` is never reached.
+#
+# EXPECTED RUN (workflow `asyncPrerequisiteTimedOut`):
+#   shout       green       - frame sent
+#   awaitReply  solid red   - timed out after 3s: nothing matched its correlationId
+#   confirm     dashed red  - never ran. View logs:
+#               step 'confirm' dependsOn 'awaitReply', which has not completed successfully
+#   wrapUp      no colour   - never reached
+#   workflow: error, error_class dependency_unmet
+#
+# Needs internet: echo.websocket.org. No inputs needed.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 13 - red dash: async prerequisite timed out"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: echoServer
+    url: ./echo.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: asyncPrerequisiteTimedOut
+    steps:
+      - stepId: shout
+        channelPath: echoServer#/channels/mirror
+        action: send
+        requestBody:
+          payload:
+            token: p13-dash-sent
+            text: "hello from phase 13"
+
+      - stepId: awaitReply
+        channelPath: echoServer#/channels/mirror
+        action: receive
+        correlationId: p13-token-nobody-sends   # the echo carries p13-dash-sent, so nothing matches
+        timeout: 3000
+        onFailure:
+          - name: carryOn
+            type: goto
+            stepId: confirm                     # hand on, so the dependent step's gate is reached
+
+      - stepId: confirm
+        channelPath: echoServer#/channels/mirror
+        action: send
+        dependsOn:
+          - awaitReply                          # timed out above -> refused, never runs
+        requestBody:
+          payload:
+            token: p13-dash-confirm
+            text: "reply received"
+
+      - stepId: wrapUp                          # never reached: the refused step ends the run
+        channelPath: echoServer#/channels/mirror
+        action: send
+        requestBody:
+          payload:
+            token: p13-dash-done
+            text: "done"

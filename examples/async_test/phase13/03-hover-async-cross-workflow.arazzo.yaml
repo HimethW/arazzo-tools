@@ -1,0 +1,64 @@
+# Phase 13 - Hover scenario 3: ASYNC steps, and a prerequisite in ANOTHER workflow.
+#
+# WHAT IT SHOWS: the highlight works the same for async steps, and it only lights up steps that are in
+# THIS graph. `hear` depends on `shout` (same workflow) and on `checkBrands`, which lives in the
+# `warmUp` workflow - so there is no node for it here to light up.
+#
+#   hear  dependsOn [shout, $workflows.warmUp.steps.checkBrands]
+#
+# WHAT TO DO: open the graph for `echoRoundTrip` (not warmUp).
+#   hover hear   -> shout lights up. Nothing else does: checkBrands is not in this graph.
+#
+# EXPECTED RUN (workflow `echoRoundTrip`): its workflow-level `dependsOn` runs `warmUp` first (one
+# Toolshop call). Then `shout` sends a frame to the public WebSocket echo server and `hear` receives it
+# back. Both steps pass (green), with output echoed = "hello from phase 13".
+#
+# Needs internet: api.practicesoftwaretesting.com and echo.websocket.org. No inputs needed.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 13 - hover: async steps and a cross-workflow prerequisite"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: toolshop
+    url: ./toolshop-openapi.yaml
+    type: openapi
+  - name: echoServer
+    url: ./echo.asyncapi.yaml
+    type: asyncapi
+
+workflows:
+  - workflowId: warmUp
+    steps:
+      - stepId: checkBrands
+        operationId: getBrands
+        successCriteria:
+          - condition: "$statusCode == 200"
+
+  - workflowId: echoRoundTrip
+    dependsOn:
+      - warmUp                  # workflow-level: runs warmUp first, so the reference below can be met
+    steps:
+      - stepId: shout
+        channelPath: echoServer#/channels/mirror
+        action: send
+        requestBody:
+          payload:
+            token: p13-hover-3
+            text: "hello from phase 13"
+
+      - stepId: hear
+        channelPath: echoServer#/channels/mirror
+        action: receive
+        correlationId: p13-hover-3      # skips the server's greeting line and matches our echoed frame
+        timeout: 10000
+        dependsOn:
+          - shout                                   # in this graph - lights up
+          - "$workflows.warmUp.steps.checkBrands"   # in another workflow - nothing to light up
+        outputs:
+          echoed: $message.payload.text
+
+    outputs:
+      echoed: $steps.hear.outputs.echoed

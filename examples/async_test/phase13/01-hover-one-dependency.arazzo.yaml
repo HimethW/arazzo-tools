@@ -1,0 +1,45 @@
+# Phase 13 - Hover scenario 1: ONE dependency, and it is not the step just before.
+#
+# WHAT IT SHOWS: hovering a step lights up the steps it `dependsOn` - its declared prerequisites, not
+# whatever happens to run before it. `listProducts` depends on `listBrands`; `listCategories` runs in
+# between but is not a prerequisite.
+#
+# WHAT TO DO (no run needed - the highlight works on the plain graph, and after a run too):
+#   hover listProducts  -> listBrands gets a yellow-orange border. listCategories does not.
+#   hover listBrands    -> nothing lights up (it depends on nothing).
+#
+# EXPECTED RUN (workflow `oneDependency`): all three steps pass (green). Hover listProducts again after
+# the run - the highlight shows over listBrands' green border while you hover.
+#
+# Runs against the live Toolshop API (needs internet). No inputs needed.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 13 - hover: one dependency"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: toolshop
+    url: ./toolshop-openapi.yaml
+    type: openapi
+
+workflows:
+  - workflowId: oneDependency
+    steps:
+      - stepId: listBrands
+        operationId: getBrands
+        successCriteria:
+          - condition: "$statusCode == 200"
+
+      - stepId: listCategories
+        operationId: getCategories
+        successCriteria:
+          - condition: "$statusCode == 200"
+
+      - stepId: listProducts
+        operationId: getProducts
+        dependsOn:
+          - listBrands              # the only prerequisite - listCategories is NOT one
+        successCriteria:
+          - condition: "$statusCode == 200"
