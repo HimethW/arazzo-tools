@@ -1,6 +1,6 @@
-# Phase 13 — graph: `dependsOn` on hover, and red dashed for steps that never ran
+# Phase 13 — graph: step icons, `dependsOn` on hover, and red dashed for steps that never ran
 
-Two graph changes, three examples each. All use real endpoints: the **Toolshop API**
+Three graph changes. The hover and the red dash have three examples each; the icons show on every graph. All use real endpoints: the **Toolshop API**
 (`api.practicesoftwaretesting.com`) for REST steps and the **public WebSocket echo server**
 (`echo.websocket.org`) for async steps. **Internet required. No inputs needed** — click Run.
 
@@ -14,6 +14,27 @@ Two graph changes, three examples each. All use real endpoints: the **Toolshop A
 | no colour | not reached |
 | yellow-orange border, while hovering another step | a prerequisite of the step you are hovering (new) |
 
+## Step icons (new)
+
+Each step shows the logo for what it targets, drawn in the theme's text colour:
+
+| icon | the step targets |
+|---|---|
+| OpenAPI logo | an OpenAPI operation |
+| AsyncAPI logo | an AsyncAPI operation or channel |
+| Arazzo logo | another workflow — in this document or another Arazzo document |
+| arrow (the old icon) | anything whose type cannot be worked out |
+
+The icon always matches the *Step Type* field in the properties panel — both come from the same code.
+Examples 01, 02, 04 and 05 show OpenAPI steps; 03 and 06 show AsyncAPI steps.
+
+**All three on one graph:** open
+[`../phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml`](../phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml),
+workflow `orderThenWait` — no run needed. `placeOrder` shows OpenAPI, `alsoEmit` and `waitForOrder`
+show AsyncAPI, `handOff` shows Arazzo. `placeOrder` and `alsoEmit` are written identically (a bare
+`operationId`), so their icons differ only because the language server looked each one up in the
+declared specs.
+
 ## Before you start
 
 The extension loads its **own copies** of the graph bundle and the runner, so rebuild both before
@@ -24,7 +45,7 @@ pnpm --dir extensions/arazzo-visualizer/arazzo-designer-visualizer run build
 pnpm --dir extensions/arazzo-visualizer/arazzo-designer-extension run build-cli
 ```
 
-The hover needs only the first command. The red dash needs both — it is the runner that now reports
+The icons and the hover need only the first command. The red dash needs both — it is the runner that now reports
 a step that never ran.
 
 ## Hover scenarios — hover works before a run, and after one
