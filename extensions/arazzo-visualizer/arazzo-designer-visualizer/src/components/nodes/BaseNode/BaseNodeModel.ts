@@ -31,6 +31,7 @@ export interface BaseNodeData {
     hasError?: boolean;
     errorMessage?: string;
     iconClass?: string;
+    iconSrc?: string;
     iconSize?: number;
     flash?: boolean;
     // Add any properties that Visitors need to access/modify

@@ -130,6 +130,17 @@ export namespace NodeStyles {
         opacity: 0.95;
     `;
 
+    // An image used as a stencil filled with the text colour, so a multi-colour logo follows the
+    // theme exactly like a font icon.
+    export const MaskIcon = styled.span<{ src: string; size: number }>`
+        flex-shrink: 0;
+        width: ${(props: { size: number }) => props.size}px;
+        height: ${(props: { size: number }) => props.size}px;
+        background-color: currentColor;
+        mask: url("${(props: { src: string }) => props.src}") center / contain no-repeat;
+        opacity: 0.95;
+    `;
+
     export const Description = styled.div`
         width: 100%;
         min-width: 0;
@@ -193,7 +204,9 @@ export const BaseNodeWidget: React.FC<BaseNodeWidgetProps> = ({
         >
             <NodeStyles.Header>
                 <NodeStyles.Title title={data.label} style={{ fontSize: (data as any).fontSize ?? 14 }}>
-                    {data.iconClass ? (
+                    {data.iconSrc ? (
+                        <NodeStyles.MaskIcon src={data.iconSrc} size={data.iconSize ?? 20} />
+                    ) : data.iconClass ? (
                         <NodeStyles.Icon
                             className={data.iconClass}
                             style={{ fontSize: data.iconSize ?? 20 }}

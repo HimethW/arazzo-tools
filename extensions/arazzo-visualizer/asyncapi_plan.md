@@ -1572,7 +1572,7 @@ the **project-wide** sweep and the single user-facing page.
 - ✅ Examples parse and run to their documented outcome — verified end-to-end through `handleRun`
   for all eleven of the step-2 set, and through a live MCP server and Copilot for step 1.
 
-### Phase 13: Visualizer UI Enhancements — 🟡 IN PROGRESS (steps 2–3 implemented, visual check pending; step 1 waits on logo assets)
+### Phase 13: Visualizer UI Enhancements — 🟡 IN PROGRESS (steps 1–3 implemented, visual check pending)
 
 Goal: the graph-appearance changes deliberately pulled OUT of Phase 8 — make an async workflow look
 like one on the canvas, not only in the properties panel.
@@ -1612,24 +1612,26 @@ styling, source badges, `dependsOn` edges, a separate blocked colour):
 
 ---
 
-#### Step 1 — Step icons by kind — ⏸ WAITING ON LOGO ASSETS
+#### Step 1 — Step icons by kind — ✅ IMPLEMENTED (visual check pending)
 
-Draw the logo for what the step targets: OpenAPI, AsyncAPI or Arazzo. The Arazzo logo covers both a
-workflow in another Arazzo document and a nested workflow in this one.
+Each step shows the logo for what it targets: OpenAPI, AsyncAPI or Arazzo. The Arazzo logo covers both
+a workflow in another Arazzo document and a nested workflow in this one.
 
-- **Take the kind from the panel's existing derivation, not a second copy.** Move the Step Type logic
+- **The kind comes from the panel's existing derivation, not a second copy.** The Step Type logic moved
   out of [NodePropertiesPanel.tsx](arazzo-designer-visualizer/src/views/WorkflowView/NodePropertiesPanel.tsx)
-  into a shared helper that both the panel and the node factory call, so the icon and the panel's
-  *Step Type* cannot disagree. It already prefers the LSP's resolved `stepType`.
-- Every step's icon is set in [NodeFactoryVisitorVertical_v2.ts](arazzo-designer-visualizer/src/visitors/NodeFactoryVisitorVertical_v2.ts)
-  (`fw-bi-arrow-outward` today), and `BaseNodeWidget` renders only icon-font classes — it needs to
-  render an image too. Keep the arrow for a step whose kind is unknown.
-- **Assets** go in `arazzo-designer-visualizer/src/resources/icons/` as `openapi.svg`, `asyncapi.svg`
-  and `arazzo.svg` — the folder and import pattern `success.svg`/`fail.svg` already use. The Arazzo
-  logo can be the extension's own ([light-icon.svg](arazzo-designer-extension/assets/light-icon.svg):
-  orange, transparent background). The OpenAPI and AsyncAPI logos are not in the repo. Use each
-  project's icon mark rather than its wordmark (it renders at 24px), in a variant visible on both
-  light and dark themes.
+  unchanged into [utils/stepKind.ts](arazzo-designer-visualizer/src/utils/stepKind.ts) (`getStepKind`),
+  which the panel and the node factory both call, so a node's icon and the panel's *Step Type* cannot
+  disagree. It still prefers the LSP's resolved `stepType`. Checked against the old in-panel code on 20
+  inputs (every LSP value, every fallback branch, no sources, one untyped source): identical results.
+- [NodeFactoryVisitorVertical_v2.ts](arazzo-designer-visualizer/src/visitors/NodeFactoryVisitorVertical_v2.ts)
+  sets `iconSrc` from `STEP_KIND_ICONS`. The old default — `iconClass = 'fw fw-bi-arrow-outward'`, a glyph
+  in WSO2's icon font `@wso2/font-wso2-vscode` — is **left in place** and still used for a step whose kind
+  is unknown. Reverting to the arrow everywhere means deleting only the `iconSrc` lines.
+- **One colour, following the theme, like the arrow.** `BaseNodeWidget` draws the logo as a CSS mask filled
+  with `currentColor` (`NodeStyles.MaskIcon`), so the logos' own colours are ignored. A mask keeps only the
+  shape, so a logo must have a transparent background with its details cut out.
+- **Assets** in `arazzo-designer-visualizer/src/resources/icons/`: `openapi.svg`, `asyncapi.svg`, and
+  `arazzo.svg` (a copy of the extension's own [light-icon.svg](arazzo-designer-extension/assets/light-icon.svg)).
 
 #### Step 2 — Blocked steps render red dashed — ✅ IMPLEMENTED (visual check pending)
 
@@ -1689,7 +1691,8 @@ visible for the first time.
 - ⏳ Hovering a step with `dependsOn` highlights its prerequisites; hovering one without it changes
   nothing.
 - ⏳ A graph with no `dependsOn` and no failures renders as before.
-- ⏸ Each step shows the logo for its kind, matching the panel's *Step Type*.
+- ⏳ Each step shows the logo for its kind, in the theme's text colour, matching the panel's *Step Type*; a
+  step whose kind is unknown keeps the arrow.
 - ✅ Both Go modules build, vet and test clean; the visualizer type-checks and bundles.
 - **Examples:** [`examples/async_test/phase13/`](../../examples/async_test/phase13/README.md) — three
   hover scenarios (one dependency; several and chained; async with a cross-workflow reference) and three
