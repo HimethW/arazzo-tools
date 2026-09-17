@@ -1572,7 +1572,7 @@ the **project-wide** sweep and the single user-facing page.
 - ✅ Examples parse and run to their documented outcome — verified end-to-end through `handleRun`
   for all eleven of the step-2 set, and through a live MCP server and Copilot for step 1.
 
-### Phase 13: Visualizer UI Enhancements — 🟡 IN PROGRESS (steps 1–3 implemented, visual check pending)
+### Phase 13: Visualizer UI Enhancements — ✅ DONE (2026-09-17)
 
 Goal: the graph-appearance changes deliberately pulled OUT of Phase 8 — make an async workflow look
 like one on the canvas, not only in the properties panel.
@@ -1612,7 +1612,7 @@ styling, source badges, `dependsOn` edges, a separate blocked colour):
 
 ---
 
-#### Step 1 — Step icons by kind — ✅ IMPLEMENTED (visual check pending)
+#### Step 1 — Step icons by kind — ✅ DONE
 
 Each step shows the logo for what it targets: OpenAPI, AsyncAPI or Arazzo. The Arazzo logo covers both
 a workflow in another Arazzo document and a nested workflow in this one.
@@ -1633,7 +1633,7 @@ a workflow in another Arazzo document and a nested workflow in this one.
 - **Assets** in `arazzo-designer-visualizer/src/resources/icons/`: `openapi.svg`, `asyncapi.svg`, and
   `arazzo.svg` (a copy of the extension's own [light-icon.svg](arazzo-designer-extension/assets/light-icon.svg)).
 
-#### Step 2 — Blocked steps render red dashed — ✅ IMPLEMENTED (visual check pending)
+#### Step 2 — Blocked steps render red dashed — ✅ DONE
 
 **What was wrong.** A step refused by its `dependsOn` gate sent no span at all: the gate in
 [runner.go](../../arazzo-designer-cli/internal/runner/runner.go) returns before `ExecuteStep`, which is
@@ -1659,7 +1659,7 @@ left untouched — not red, nothing — and its Logs tab was empty.
 non-vacuous: removing `ReportBlockedStep` fails it (*no end span for step "gated"*), and removing the
 attribute fails it on both classes.
 
-#### Step 3 — `dependsOn` highlighted on hover — ✅ IMPLEMENTED (visual check pending)
+#### Step 3 — `dependsOn` highlighted on hover — ✅ DONE
 
 Hovering a step flashes the border of each step it depends on in `ThemeColors.SECONDARY` (VS Code's
 `contrastActiveBorder`, falling back to the lightbulb colour). It reuses `flash`, so it is one handler
@@ -1687,18 +1687,21 @@ visible for the first time.
 
 #### Tests / acceptance
 
-- ⏳ A `dependsOn`-blocked step renders red dashed; a step that ran and failed renders red solid.
-- ⏳ Hovering a step with `dependsOn` highlights its prerequisites; hovering one without it changes
+- ✅ A `dependsOn`-blocked step renders red dashed; a step that ran and failed renders red solid.
+- ✅ Hovering a step with `dependsOn` highlights its prerequisites; hovering one without it changes
   nothing.
-- ⏳ A graph with no `dependsOn` and no failures renders as before.
-- ⏳ Each step shows the logo for its kind, in the theme's text colour, matching the panel's *Step Type*; a
+- ✅ A graph with no `dependsOn` and no failures renders as before.
+- ✅ Each step shows the logo for its kind, in the theme's text colour, matching the panel's *Step Type*; a
   step whose kind is unknown keeps the arrow.
 - ✅ Both Go modules build, vet and test clean; the visualizer type-checks and bundles.
+- ✅ All four visual checks above were done by hand in the Extension Development Host (2026-09-17).
 - **Examples:** [`examples/async_test/phase13/`](../../examples/async_test/phase13/README.md) — three
   hover scenarios (one dependency; several and chained; async with a cross-workflow reference) and three
   red-dash scenarios (prerequisite failed; prerequisite skipped by `goto`; async prerequisite timed out),
   all against real endpoints (Toolshop, WebSocket echo). Each was run end-to-end and produced the step
-  outcomes its header documents; none raises an editor error or warning.
+  outcomes its header documents; none raises an editor error or warning. The README also covers the
+  icons, pointing at [`phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml`](../../examples/async_test/phase12/step1_workflowInfo/05-mixed-steps.arazzo.yaml)
+  for all three logos on one graph.
 
 ### Phase 14 (FINAL): Non-Blocking Async Steps — ❌ NOT STARTED
 
