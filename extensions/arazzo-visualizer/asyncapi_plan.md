@@ -1683,7 +1683,8 @@ visible for the first time.
   off `stepType`. `getSourceInfo` stays unconsumed, and the `TypeMismatch()` it reports is still not
   surfaced anywhere (already noted under Phase 8).
 - **`dependsOn` edges** — replaced by the hover highlight.
-- **Workflow-level `dependsOn`** — not drawn; no example uses it.
+- **Workflow-level `dependsOn`** — not drawn. Scenario 3 uses one (`echoRoundTrip` depends on `warmUp`,
+  so `warmUp` runs first); nothing on the graph shows it.
 
 #### Tests / acceptance
 
