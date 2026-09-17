@@ -26,7 +26,7 @@ import { StateMachine, openView } from './stateMachine';
 import { extension } from './Context';
 import { activate as activateHistory } from './history';
 import { activateVisualizer } from './visualizer/activate';
-import { activateMCPServer } from './mcp';
+import { activateMCPServer } from './mcp'; // #UNUSED - activateMCPServer is never called
 import { RPCLayer } from './RPCLayer';
 import { VisualizerWebview } from './visualizer/webview';
 import { EVENT_TYPE, MACHINE_VIEW, openInputConfigPanel } from '@wso2/arazzo-designer-core';
