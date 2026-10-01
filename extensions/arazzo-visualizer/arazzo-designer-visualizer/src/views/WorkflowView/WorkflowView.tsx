@@ -358,7 +358,12 @@ export function WorkflowView(props: WorkflowViewProps) {
                     // Update node status
                     const updated = prev.map(node => {
                         if (node.id === stepId && node.type === 'stepNode') {
-                            const traceStatus: StepTraceStatus = { state, durationMs: event.duration_ms };
+                            const traceStatus: StepTraceStatus = {
+                                state,
+                                durationMs: event.duration_ms,
+                                // Refused by its dependsOn gate, so it never ran - the runner's dependency_unmet class.
+                                blocked: event.attributes?.['error.type'] === 'dependency_unmet',
+                            };
                             return { ...node, data: { ...node.data, traceStatus } };
                         }
                         return node;
@@ -692,6 +697,17 @@ export function WorkflowView(props: WorkflowViewProps) {
         });
     }, []);
 
+    // Hovering a step lights up the steps it depends on - the same border flash a goto/retry target
+    // gets - rather than drawing more lines. Only a bare stepId names a step in this graph; a
+    // `$workflows.<id>.steps.<id>` reference points into another workflow and matches no node.
+    const flashDependencies = useCallback((node: Node, flash: boolean) => {
+        const deps = (node.data as any)?.dependsOn;
+        if (node.type !== 'stepNode' || !Array.isArray(deps) || deps.length === 0) { return; }
+        setNodes(prev => prev.map(n =>
+            n.type === 'stepNode' && deps.includes(n.id) ? { ...n, data: { ...n.data, flash } } : n
+        ));
+    }, [setNodes]);
+
     const handleClosePanel = useCallback(() => {
         setIsPanelOpen(false);
         setSelectedNode(null);
@@ -980,6 +996,8 @@ export function WorkflowView(props: WorkflowViewProps) {
                 onEdgesChange={onEdgesChange}
                 onConnect={C.isEditable ? onConnect : undefined}
                 onNodeClick={onNodeClick}
+                onNodeMouseEnter={(_, node) => flashDependencies(node, true)}
+                onNodeMouseLeave={(_, node) => flashDependencies(node, false)}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
                 nodesDraggable={C.isEditable}

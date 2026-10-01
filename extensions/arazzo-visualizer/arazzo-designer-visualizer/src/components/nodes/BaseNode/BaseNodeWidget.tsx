@@ -44,6 +44,7 @@ export namespace NodeStyles {
         alignLeft?: boolean;
         flash?: boolean;
         traceState?: 'running' | 'passed' | 'failed';
+        blocked?: boolean;
     };
 
     const flashAnim = keyframes`
@@ -66,9 +67,12 @@ export namespace NodeStyles {
         color: ${MODERN ? ThemeColors.ON_SURFACE : 'var(--vscode-editor-foreground)'};
         opacity: ${(props: NodeStyleProp) => (props.disabled ? 0.7 : 1)};
         border: ${(props: NodeStyleProp) => (props.disabled ? 2 : C.NODE_BORDER_WIDTH)}px;
-        border-style: ${(props: NodeStyleProp) => (props.disabled ? 'dashed' : 'solid')};
+        border-style: ${(props: NodeStyleProp) => (props.disabled || props.blocked ? 'dashed' : 'solid')};
         border-color: ${(props: NodeStyleProp) => {
-            // Trace state takes highest priority for border color
+            // A flash is a momentary "look here" - a goto/retry target, or a step the hovered one
+            // depends on - so it shows over everything else while it lasts.
+            if (props.flash) return ThemeColors.SECONDARY;
+            // Then the trace state, over everything below
             if (props.traceState === 'passed') return (ThemeColors as any).TESTING_PASSED;
             if (props.traceState === 'failed') return ThemeColors.ERROR;
             if (props.traceState === 'running') return ThemeColors.PRIMARY;
@@ -77,13 +81,11 @@ export namespace NodeStyles {
             }
             return props.hasError
                 ? ThemeColors.ERROR
-                : props.flash
+                : props.isSelected && !props.disabled
                     ? ThemeColors.SECONDARY
-                    : props.isSelected && !props.disabled
+                    : props.hovered && !props.disabled && !props.readOnly
                         ? ThemeColors.SECONDARY
-                        : props.hovered && !props.disabled && !props.readOnly
-                            ? ThemeColors.SECONDARY
-                            : ThemeColors.OUTLINE_VARIANT;
+                        : ThemeColors.OUTLINE_VARIANT;
         }};
         border-radius: 10px;
         cursor: ${(props: NodeStyleProp) => (props.readOnly ? 'default' : 'pointer')};
@@ -125,6 +127,17 @@ export namespace NodeStyles {
         justify-content: center;
         font-size: 14px;
         line-height: 1;
+        opacity: 0.95;
+    `;
+
+    // An image used as a stencil filled with the text colour, so a multi-colour logo follows the
+    // theme exactly like a font icon.
+    export const MaskIcon = styled.span<{ src: string; size: number }>`
+        flex-shrink: 0;
+        width: ${(props: { size: number }) => props.size}px;
+        height: ${(props: { size: number }) => props.size}px;
+        background-color: currentColor;
+        mask: url("${(props: { src: string }) => props.src}") center / contain no-repeat;
         opacity: 0.95;
     `;
 
@@ -185,12 +198,15 @@ export const BaseNodeWidget: React.FC<BaseNodeWidgetProps> = ({
             isSelected={selected}
             alignLeft={Boolean(leftAligned)}
             traceState={(data as any).traceStatus?.state}
+            blocked={(data as any).traceStatus?.blocked}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
         >
             <NodeStyles.Header>
                 <NodeStyles.Title title={data.label} style={{ fontSize: (data as any).fontSize ?? 14 }}>
-                    {data.iconClass ? (
+                    {data.iconSrc ? (
+                        <NodeStyles.MaskIcon src={data.iconSrc} size={data.iconSize ?? 20} />
+                    ) : data.iconClass ? (
                         <NodeStyles.Icon
                             className={data.iconClass}
                             style={{ fontSize: data.iconSize ?? 20 }}

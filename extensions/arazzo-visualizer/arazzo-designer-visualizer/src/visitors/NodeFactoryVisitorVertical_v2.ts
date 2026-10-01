@@ -25,6 +25,7 @@ import { ThemeColors } from '@wso2/ui-toolkit';
 import { MODERN } from '../constants';
 import { ArazzoDefinition } from '@wso2/arazzo-designer-core';
 import { resolveReference } from '../utils/referenceUtils';
+import { getStepKind, STEP_KIND_ICONS } from '../utils/stepKind';
 
 /**
  * NodeFactoryVisitorVertical V2: Generate React Flow nodes and edges for vertical layout.
@@ -72,6 +73,11 @@ export class NodeFactoryVisitorVertical_v2 {
         const composedData = { label: node.label, ...node.data } as any;
         if (node.type === 'STEP' && !composedData.iconClass) {
             composedData.iconClass = 'fw fw-bi-arrow-outward'; // Default icon for steps
+        }
+        // The logo for what the step targets; the arrow above stays for a step whose kind is unknown.
+        const stepKind = node.type === 'STEP' ? getStepKind(composedData, this.definition?.sourceDescriptions) : undefined;
+        if (stepKind) {
+            composedData.iconSrc = STEP_KIND_ICONS[stepKind];
         }
         // Ensure step nodes use the shared FONT_SIZE constant for title text
         if (node.type === 'STEP') {

@@ -1,0 +1,67 @@
+# Phase 13 - Hover scenario 2: SEVERAL dependencies, and a CHAIN of them.
+#
+# WHAT IT SHOWS: a step with several prerequisites lights up all of them, and the highlight shows
+# DIRECT prerequisites only - it does not follow the chain further back.
+#
+#   listProducts   dependsOn [listBrands, listCategories]    <- several
+#   productDetail  dependsOn [listProducts]                  <- a chain: listProducts has its own two
+#
+# WHAT TO DO:
+#   hover listProducts   -> listBrands AND listCategories light up.
+#   hover productDetail  -> ONLY listProducts lights up - not listBrands or listCategories, even though
+#                           listProducts depends on them. Hover listProducts to go one level further.
+#
+# EXPECTED RUN (workflow `severalAndChained`): all four steps pass (green). `productDetail` fetches the
+# first product `listProducts` returned - which is the real reason it depends on it.
+#
+# Runs against the live Toolshop API (needs internet). No inputs needed.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 13 - hover: several dependencies and a chain"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: toolshop
+    url: ./toolshop-openapi.yaml
+    type: openapi
+
+workflows:
+  - workflowId: severalAndChained
+    steps:
+      - stepId: listBrands
+        operationId: getBrands
+        successCriteria:
+          - condition: "$statusCode == 200"
+
+      - stepId: listCategories
+        operationId: getCategories
+        successCriteria:
+          - condition: "$statusCode == 200"
+
+      - stepId: listProducts
+        operationId: getProducts
+        dependsOn:                  # several prerequisites - both light up
+          - listBrands
+          - listCategories
+        successCriteria:
+          - condition: "$statusCode == 200"
+        outputs:
+          firstProductId: $response.body#/data/0/id
+
+      - stepId: productDetail
+        operationId: getProduct
+        dependsOn:
+          - listProducts            # direct prerequisite only - its own two do NOT light up
+        parameters:
+          - name: productId
+            in: path
+            value: $steps.listProducts.outputs.firstProductId
+        successCriteria:
+          - condition: "$statusCode == 200"
+        outputs:
+          productName: $response.body#/name
+
+    outputs:
+      productName: $steps.productDetail.outputs.productName

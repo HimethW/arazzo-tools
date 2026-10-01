@@ -144,6 +144,64 @@ func TestDependencyGateFailuresAreClassified(t *testing.T) {
 	}
 }
 
+// A step refused by its dependsOn gate never runs, but the graph still has to show it - failed, and
+// as a step that did not run rather than one that broke. So it gets a span like any other step, and
+// every failed step's span names its class, letting the webview tell the two apart without reading
+// error messages.
+func TestBlockedStepIsReportedWithItsClass(t *testing.T) {
+	p := writeFlow(t, `arazzo: 1.1.0
+info:
+  title: T
+  version: "1.0.0"
+sourceDescriptions:
+  - name: kafkaBus
+    url: ./kafka.asyncapi.yaml
+    type: asyncapi
+  - name: localBus
+    url: ./local.asyncapi.yaml
+    type: asyncapi
+workflows:
+  - workflowId: gatedFlow
+    steps:
+      # Fails, then hands on to the step that depends on it.
+      - stepId: prerequisite
+        channelPath: kafkaBus#/channels/events
+        action: send
+        onFailure:
+          - name: carryOn
+            type: goto
+            stepId: gated
+      - stepId: gated
+        dependsOn: [prerequisite]
+        channelPath: localBus#/channels/events
+        action: send
+        requestBody:
+          payload:
+            marker: ok
+`)
+	sink := &spanSink{}
+	r, err := NewArazzoRunner(p, &models.RuntimeParams{}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.ExecuteWorkflow("gatedFlow", nil)
+
+	gated := sink.stepEnd(t, "gated")
+	if gated.StatusCode != telemetry.SpanStatusError {
+		t.Errorf("blocked step status = %v, want error", gated.StatusCode)
+	}
+	if !strings.Contains(gated.StatusMessage, "dependsOn") {
+		t.Errorf("the blocked step's span must say why it did not run, got: %q", gated.StatusMessage)
+	}
+	if got := gated.Attributes["error.type"]; got != string(failure.DependencyUnmet) {
+		t.Errorf("blocked step error.type = %q, want %q", got, failure.DependencyUnmet)
+	}
+	// The step that actually broke carries its own class, which is what renders it differently.
+	if got := sink.stepEnd(t, "prerequisite").Attributes["error.type"]; got != string(failure.AdapterUnsupported) {
+		t.Errorf("failed step error.type = %q, want %q", got, failure.AdapterUnsupported)
+	}
+}
+
 // A workflow that is not in the document, and one with no steps, are different problems and get
 // different classes - and both must reach the workflow result a caller reads.
 func TestWorkflowLevelFailuresAreClassified(t *testing.T) {

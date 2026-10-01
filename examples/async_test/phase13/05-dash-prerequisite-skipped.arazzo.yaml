@@ -1,0 +1,52 @@
+# Phase 13 - Red-dash scenario 2: the prerequisite NEVER RAN.  (ends in error on purpose)
+#
+# WHAT IT SHOWS: a step is refused even when nothing failed. `listBrands` passes and its onSuccess
+# jumps straight to `listProducts`, skipping `listCategories`. `listProducts` depends on
+# `listCategories`, which never ran - so the gate refuses it.
+#
+# EXPECTED RUN (workflow `prerequisiteSkipped`):
+#   listBrands      green       - ran and passed
+#   listCategories  no colour   - jumped over, never ran
+#   listProducts    dashed red  - never ran. View logs:
+#                   step 'listProducts' dependsOn 'listCategories', which has not completed successfully
+#   workflow: error, error_class dependency_unmet
+#
+# The only red on screen is dashed: nothing broke. The fix is the flow - the goto skips a prerequisite.
+# Hover listProducts: the uncoloured listCategories lights up.
+#
+# Runs against the live Toolshop API (needs internet). No inputs needed.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 13 - red dash: prerequisite skipped"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: toolshop
+    url: ./toolshop-openapi.yaml
+    type: openapi
+
+workflows:
+  - workflowId: prerequisiteSkipped
+    steps:
+      - stepId: listBrands
+        operationId: getBrands
+        successCriteria:
+          - condition: "$statusCode == 200"
+        onSuccess:
+          - name: skipAhead
+            type: goto
+            stepId: listProducts            # jumps over listCategories
+
+      - stepId: listCategories              # never runs
+        operationId: getCategories
+        successCriteria:
+          - condition: "$statusCode == 200"
+
+      - stepId: listProducts
+        operationId: getProducts
+        dependsOn:
+          - listCategories                  # never ran -> refused, never runs
+        successCriteria:
+          - condition: "$statusCode == 200"

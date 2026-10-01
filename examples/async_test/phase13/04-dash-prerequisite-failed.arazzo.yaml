@@ -1,0 +1,55 @@
+# Phase 13 - Red-dash scenario 1: the prerequisite RAN AND FAILED.  (ends in error on purpose)
+#
+# WHAT IT SHOWS: solid red and dashed red side by side. `findBrand` asks for a brand that does not
+# exist, gets a 404 and fails - it ran and broke, so it is SOLID red. Its onFailure hands on to
+# `listBrandProducts`, which depends on it. The gate refuses that step, so it never runs: DASHED red.
+#
+# EXPECTED RUN (workflow `prerequisiteFailed`):
+#   findBrand          solid red   - ran, got 404, so "$statusCode == 200" was not met
+#   listBrandProducts  dashed red  - never ran. View logs:
+#                      step 'listBrandProducts' dependsOn 'findBrand', which has not completed successfully
+#   workflow: error, error_class dependency_unmet
+#
+# Hover listBrandProducts: findBrand lights up - the step to go and fix.
+#
+# Runs against the live Toolshop API (needs internet). No inputs needed.
+
+arazzo: 1.1.0
+
+info:
+  title: "Phase 13 - red dash: prerequisite failed"
+  version: "1.0.0"
+
+sourceDescriptions:
+  - name: toolshop
+    url: ./toolshop-openapi.yaml
+    type: openapi
+
+workflows:
+  - workflowId: prerequisiteFailed
+    steps:
+      - stepId: findBrand
+        operationId: getBrand
+        parameters:
+          - name: brandId
+            in: path
+            value: no-such-brand            # does not exist -> 404
+        successCriteria:
+          - condition: "$statusCode == 200"
+        outputs:
+          brandId: $response.body#/id
+        onFailure:
+          - name: carryOn
+            type: goto
+            stepId: listBrandProducts       # hand on, so the dependent step's gate is reached
+
+      - stepId: listBrandProducts
+        operationId: getProducts
+        dependsOn:
+          - findBrand                       # failed above -> refused, never runs
+        parameters:
+          - name: by_brand
+            in: query
+            value: $steps.findBrand.outputs.brandId
+        successCriteria:
+          - condition: "$statusCode == 200"
