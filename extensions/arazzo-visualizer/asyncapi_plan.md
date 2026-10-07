@@ -1302,6 +1302,9 @@ pointing into the payload. All in-memory: no broker, no network.
 schema-registry config (they belong together, see above); MQTT credentials and custom TLS
 configuration.
 
+> **✅ FIXED (2026-09-17, branch `bug_fixes_1`)** — the adapter now re-subscribes after paho reconnects;
+> see the bug's entry under "Known Issues" at the end. The analysis below is kept as the record of why.
+
 **⚠️ HIGH PRIORITY GAP — fix before this is used against a broker that matters.** Everything else in
 this phase fails loudly. This one does not: it produces a correct-looking run that quietly stops
 receiving. It is listed first deliberately, ahead of the minor limits below.
@@ -1841,7 +1844,7 @@ Step spans will now overlap in wall-clock time. Parent/child links are set expli
 `state.WorkflowSpanID` rather than derived from emission order, so they *should* be unaffected —
 verify rather than assume, with a test asserting parentage on interleaved spans.
 
-**8. Re-check the Phase 11 reconnect gap.**
+**8. Re-check the Phase 11 reconnect gap.** ✅ **Fixed 2026-09-17** (see Known Issues) — kept for context.
 The high-priority MQTT gap above ("a reconnected client silently stops receiving") gets materially
 more likely here: a receive now stays in flight for its whole timeout instead of a few seconds inside
 one step, so the exposure window grows a lot. **Fix that first, not after.**
@@ -2000,7 +2003,29 @@ The lookup this needs already exists: `lookupChannelInSources`
 than the runtime class that currently reports it, and belongs with the other LSP blind spots in
 item 4.
 
-### BUG (HIGH PRIORITY): a reconnected MQTT client silently stops receiving
+### BUG (HIGH PRIORITY): a reconnected MQTT client silently stops receiving — ✅ FIXED (2026-09-17)
+
+> **Fix (branch `bug_fixes_1`, [adapter_mqtt.go](../../arazzo-designer-cli/internal/runner/executor/adapter_mqtt.go)):**
+> re-subscribe after a reconnect. paho calls `SetOnConnectHandler` "both at initial connection time and
+> upon automatic reconnect" (its own docs); the adapter's `onConnect` counts the current client's connects
+> and, from the second on, subscribes again to every topic `subscribed` still lists (a late callback from a
+> client already replaced after a failed connect is ignored). The first connect is skipped —
+> `ensureSubscribed` subscribes as it goes, and a second subscribe would make a broker redeliver retained
+> messages. A topic whose re-subscribe fails is dropped from `subscribed`, so the next step on it
+> subscribes again and reports the failure instead of waiting on nothing. A drop and a reconnect are now
+> logged (`mqtt connection to … lost: …; reconnecting`, `mqtt reconnected to …; re-subscribed N topic(s)`),
+> so a timeout right after one explains itself.
+>
+> **Still lost, by decision:** messages published *while* the connection is down. A clean session cannot
+> recover them; a persistent session (`CleanSession(false)` + `ResumeSubs(true)`) could, but leaves a
+> session on the broker per run and was judged not worth it for a rare, external failure.
+>
+> **Verified:** two unit tests against the fake client (subscriptions restored and an in-flight receive
+> served after a reconnect, the first connect not subscribing twice, a failed re-subscribe retried by the
+> next step) — each fails when its part of the fix is removed. End to end with real paho and
+> `broker.hivemq.com` through a loopback relay whose connection is cut: paho reconnects by itself, and a
+> message published afterwards by a separate client **is received on the new code and times out
+> silently on the old**. The real-broker round trip and Phase 11 examples 01 and 04 still pass.
 
 Not part of the end-of-project batch above — this one should be fixed **before Phase 14**, which
 widens its window considerably.
